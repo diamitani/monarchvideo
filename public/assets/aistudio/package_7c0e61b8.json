@@ -1,0 +1,70 @@
+{
+  "name": "rostr-agent-stack",
+  "version": "1.0.0",
+  "description": "Open-source, protocol-first 6-layer agent architecture combining ROSTR, PAL, NPAO, Cloudflare Context Engine, stateless MCP (2026-07-28), ACP/A2A handoffs, and the 6th Agent meta-builder.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "rostr-agent-stack": "./bin/cli.mjs",
+    "create-rostr-agent": "./bin/cli.mjs"
+  },
+  "exports": {
+    "./substrate": {
+      "types": "./packages/substrate/index.d.ts",
+      "import": "./packages/substrate/context-engine.mjs"
+    },
+    "./pal": {
+      "types": "./packages/pal/index.d.ts",
+      "import": "./packages/pal/pal-compiler.mjs"
+    },
+    "./reasoning": {
+      "types": "./packages/pal/index.d.ts",
+      "import": "./packages/pal/reasoning-adapter.mjs"
+    },
+    "./mcp": {
+      "types": "./packages/mcp/index.d.ts",
+      "import": "./packages/mcp/mcp-protocol.mjs"
+    },
+    "./acp": {
+      "types": "./packages/acp/index.d.ts",
+      "import": "./packages/acp/acp-protocol.mjs"
+    },
+    "./orchestrator": {
+      "types": "./packages/orchestrator/index.d.ts",
+      "import": "./packages/orchestrator/npao-harness.mjs"
+    },
+    "./sixth-agent": {
+      "types": "./packages/sixth-agent/index.d.ts",
+      "import": "./packages/sixth-agent/meta-builder.mjs"
+    }
+  },
+  "scripts": {
+    "cli": "node ./bin/cli.mjs",
+    "init:agent": "node ./bin/cli.mjs init",
+    "demo": "node ./bin/cli.mjs demo",
+    "dev": "node ./src/server.mjs",
+    "test": "node ./tests/verify-stack.mjs",
+    "deploy:cf": "wrangler deploy"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "rostr",
+    "agent-architecture",
+    "mcp",
+    "model-context-protocol",
+    "acp",
+    "agent-communication-protocol",
+    "a2a",
+    "cloudflare-durable-objects",
+    "pal",
+    "npao",
+    "composio"
+  ],
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260701.0",
+    "typescript": "^5.8.0",
+    "wrangler": "^4.0.0"
+  }
+}

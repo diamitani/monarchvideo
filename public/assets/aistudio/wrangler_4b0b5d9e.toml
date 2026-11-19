@@ -1,0 +1,31 @@
+name = "rostr-agent-stack"
+main = "src/worker.ts"
+compatibility_date = "2026-07-28"
+compatibility_flags = ["nodejs_compat"]
+
+# Layer 1: Stateful Context Engine on Cloudflare Durable Objects (embedded SQLite)
+[[durable_objects.bindings]]
+name = "ROSTR_CONTEXT_ENGINE"
+class_name = "RostrContextEngine"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RostrContextEngine"]
+
+# Layer 1: Semantic Retrieval on Cloudflare Vectorize
+[[vectorize]]
+binding = "ROSTR_VECTORIZE"
+index_name = "rostr-context-index"
+
+# Layer 2 (Optional): Cloudflare Workers AI binding for edge inference
+[ai]
+binding = "AI"
+
+# Layer 5: Scheduled relearning / context freshness sweep
+[triggers]
+crons = ["0 */6 * * *"]
+
+[vars]
+ROSTR_ENV = "production"
+MCP_PROTOCOL_VERSION = "2026-07-28"
+ACP_PROTOCOL_VERSION = "1.0"

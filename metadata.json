@@ -1,0 +1,6 @@
+{
+  "name": "Monarch Video",
+  "description": "Agentic programmatic video production platform powered by the ROSTR 6-layer open-protocol agent stack, turning natural language into editable treatments, storyboards, scripts, and deterministic video timelines.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

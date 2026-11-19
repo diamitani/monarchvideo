@@ -4,6 +4,7 @@ import {
   getAuth,
   GoogleAuthProvider,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -27,7 +28,7 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
-import type { MediaAsset, VideoProject } from '../types/monarch';
+import type { BrandKit, DesignStyleBlueprint, MediaAsset, VideoProject } from '../types/monarch';
 
 export enum OperationType {
   CREATE = 'create',
@@ -47,7 +48,7 @@ export interface FirestoreErrorInfo {
     email?: string | null;
     emailVerified?: boolean | null;
     isAnonymous?: boolean | null;
-    tenantId?: string | null;
+    tenantId?: boolean | string | null;
     providerInfo?: {
       providerId?: string | null;
       email?: string | null;
@@ -60,6 +61,7 @@ export const auth = getAuth(app);
 export const db: Firestore = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const firebaseMeta = {
   projectId: firebaseConfig.projectId,
+  authDomain: firebaseConfig.authDomain,
   firestoreDatabaseId: firebaseConfig.firestoreDatabaseId,
   storageBucket: firebaseConfig.storageBucket,
 };
@@ -135,6 +137,10 @@ export async function signInWithEmail(params: {
   return cred.user;
 }
 
+export async function sendPasswordReset(email: string): Promise<void> {
+  await sendPasswordResetEmail(auth, email.trim());
+}
+
 export async function signOutUser(): Promise<void> {
   await signOut(auth);
 }
@@ -154,6 +160,7 @@ export async function ensureUserProfile(user: User, fallbackName?: string): Prom
         email,
         ...(user.photoURL ? { photoURL: user.photoURL.slice(0, 1000) } : {}),
         defaultBrandName: 'Monarch',
+        planTier: 'starter',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -166,6 +173,42 @@ export async function ensureUserProfile(user: User, fallbackName?: string): Prom
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function saveUserDefaultBrandKit(uid: string, brandKit: BrandKit): Promise<void> {
+  const path = `users/${uid}`;
+  const ref = doc(db, 'users', uid);
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      await updateDoc(ref, {
+        defaultBrandName: brandKit.brandName.slice(0, 120),
+        defaultBrandKit: stripUndefinedDeep(brandKit),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateUserPlanTier(
+  uid: string,
+  planTier: 'starter' | 'creator' | 'studio'
+): Promise<void> {
+  const path = `users/${uid}`;
+  const ref = doc(db, 'users', uid);
+  try {
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      await updateDoc(ref, {
+        planTier,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
   }
 }
 
@@ -226,6 +269,7 @@ export async function loadUserCloudProjects(uid: string): Promise<VideoProject[]
         runtime: (data.runtime as VideoProject['runtime']) || 'hyperframes',
         routingMode: (data.routingMode as VideoProject['routingMode']) || 'managed-gateway',
         brandKit: data.brandKit as VideoProject['brandKit'],
+        styleBlueprintId: data.styleBlueprintId ? String(data.styleBlueprintId) : undefined,
         pal: data.pal as VideoProject['pal'],
         preProduction: data.preProduction as VideoProject['preProduction'],
         timeline: data.timeline as VideoProject['timeline'],
@@ -255,6 +299,7 @@ export async function loadUserCloudProjects(uid: string): Promise<VideoProject[]
             runtime: (data.runtime as VideoProject['runtime']) || 'hyperframes',
             routingMode: (data.routingMode as VideoProject['routingMode']) || 'managed-gateway',
             brandKit: data.brandKit as VideoProject['brandKit'],
+            styleBlueprintId: data.styleBlueprintId ? String(data.styleBlueprintId) : undefined,
             pal: data.pal as VideoProject['pal'],
             preProduction: data.preProduction as VideoProject['preProduction'],
             timeline: data.timeline as VideoProject['timeline'],
@@ -277,7 +322,6 @@ export async function saveUserCloudProject(uid: string, proj: VideoProject): Pro
   const path = `projects/${safeId}`;
   const ref = doc(db, 'projects', safeId);
 
-  // Strip raw audioDataUrl blobs so Firestore docs stay compact and under 1MB
   const compactMedia = proj.mediaSelections
     ? {
         ...proj.mediaSelections,
@@ -303,6 +347,7 @@ export async function saveUserCloudProject(uid: string, proj: VideoProject): Pro
     runtime: proj.runtime,
     routingMode: routingModeNormalized,
     brandKit: proj.brandKit,
+    ...(proj.styleBlueprintId ? { styleBlueprintId: proj.styleBlueprintId.slice(0, 120) } : {}),
     ...(proj.pal ? { pal: proj.pal } : {}),
     ...(proj.preProduction ? { preProduction: proj.preProduction } : {}),
     ...(proj.timeline ? { timeline: proj.timeline } : {}),
@@ -353,6 +398,9 @@ export async function saveCloudMediaAsset(uid: string, asset: MediaAsset): Promi
       sizeBytes: Math.max(0, Number(asset.sizeBytes || 0)),
       url: asset.url.slice(0, 1500),
       tags: (asset.tags || []).slice(0, 10).map((t) => String(t).slice(0, 64)),
+      ...(asset.extractedBrandKit
+        ? { extractedBrandKit: stripUndefinedDeep(asset.extractedBrandKit) }
+        : {}),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -368,5 +416,30 @@ export async function deleteCloudMediaAsset(assetId: string): Promise<void> {
     await deleteDoc(doc(db, 'mediaAssets', safeId));
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+export async function saveCloudStyleBlueprint(
+  uid: string,
+  blueprint: DesignStyleBlueprint
+): Promise<void> {
+  const safeId = sanitizeId(blueprint.id);
+  const path = `styleBlueprints/${safeId}`;
+  const ref = doc(db, 'styleBlueprints', safeId);
+  try {
+    await setDoc(ref, {
+      id: safeId,
+      ownerId: uid,
+      name: blueprint.name.slice(0, 160),
+      archetype: blueprint.archetype.slice(0, 120),
+      description: blueprint.description.slice(0, 600),
+      blueprintJson: stripUndefinedDeep(blueprint),
+      ratingScore: Math.max(0, Math.min(100, Number(blueprint.ratingScore || 90))),
+      usageCount: Math.max(0, Number(blueprint.usageCount || 1)),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, path);
   }
 }

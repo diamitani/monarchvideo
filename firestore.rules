@@ -31,7 +31,11 @@ service cloud.firestore {
     // Entity Validation Blueprint: UserProfile
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['uid', 'displayName', 'email', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'defaultBrandName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'photoURL',
+          'defaultBrandName', 'defaultBrandKit', 'planTier',
+          'createdAt', 'updatedAt'
+        ])
         && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
         && data.uid == request.auth.uid
         && data.uid == userId
@@ -39,6 +43,8 @@ service cloud.firestore {
         && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
         && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000))
         && (!('defaultBrandName' in data) || (data.defaultBrandName is string && data.defaultBrandName.size() >= 1 && data.defaultBrandName.size() <= 120))
+        && (!('defaultBrandKit' in data) || data.defaultBrandKit is map)
+        && (!('planTier' in data) || (data.planTier is string && data.planTier in ['starter', 'creator', 'studio']))
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -53,8 +59,8 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'id', 'ownerId', 'title', 'prompt', 'status', 'version',
           'aspectRatio', 'durationSec', 'runtime', 'routingMode',
-          'brandKit', 'pal', 'preProduction', 'timeline', 'mediaSelections',
-          'editHistory', 'createdAt', 'updatedAt'
+          'styleBlueprintId', 'brandKit', 'pal', 'preProduction',
+          'timeline', 'mediaSelections', 'editHistory', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.id)
         && data.id == projectId
@@ -68,6 +74,7 @@ service cloud.firestore {
         && data.durationSec is number && data.durationSec >= 3 && data.durationSec <= 300
         && data.runtime is string && data.runtime in ['hyperframes', 'remotion', 'hybrid-veo-hyperframes']
         && data.routingMode is string && data.routingMode in ['managed-gateway', 'byok-server']
+        && (!('styleBlueprintId' in data) || (data.styleBlueprintId is string && data.styleBlueprintId.size() <= 128))
         && data.brandKit is map
         && (!('pal' in data) || data.pal is map)
         && (!('preProduction' in data) || data.preProduction is map)
@@ -85,19 +92,42 @@ service cloud.firestore {
           'id', 'ownerId', 'name', 'category', 'mimeType', 'sizeBytes', 'url', 'tags', 'createdAt', 'updatedAt'
         ])
         && data.keys().hasOnly([
-          'id', 'ownerId', 'name', 'category', 'mimeType', 'sizeBytes', 'url', 'tags', 'createdAt', 'updatedAt'
+          'id', 'ownerId', 'name', 'category', 'mimeType', 'sizeBytes', 'url', 'tags', 'extractedBrandKit', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.id)
         && data.id == assetId
         && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
         && data.ownerId == request.auth.uid
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 200
-        && data.category is string && data.category in ['logo', 'image', 'audio', 'document']
+        && data.category is string && data.category in ['logo', 'image', 'video', 'audio', 'document']
         && data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 120
         && data.sizeBytes is number && data.sizeBytes >= 0 && data.sizeBytes <= 52428800
         && data.url is string && data.url.size() >= 1 && data.url.size() <= 1500
         && data.tags is list && data.tags.size() <= 10
         && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 64))
+        && (!('extractedBrandKit' in data) || data.extractedBrandKit is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Entity Validation Blueprint: StyleBlueprintDoc
+    function isValidStyleBlueprint(data, blueprintId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'name', 'archetype', 'description', 'specJson', 'usageCount', 'ratingScore', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'name', 'archetype', 'description', 'specJson', 'usageCount', 'ratingScore', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == blueprintId
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.archetype is string && data.archetype.size() >= 1 && data.archetype.size() <= 120
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 1200
+        && data.specJson is map
+        && data.usageCount is number && data.usageCount >= 0 && data.usageCount <= 100000
+        && data.ratingScore is number && data.ratingScore >= 1 && data.ratingScore <= 5
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -145,7 +175,7 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && incoming().diff(existing()).affectedKeys().hasOnly([
-          'displayName', 'email', 'photoURL', 'defaultBrandName', 'updatedAt'
+          'displayName', 'email', 'photoURL', 'defaultBrandName', 'defaultBrandKit', 'planTier', 'updatedAt'
         ]);
       allow delete: if isSignedIn() && isValidId(userId) && isOwner(userId);
     }
@@ -173,7 +203,7 @@ service cloud.firestore {
         && (
           incoming().diff(existing()).affectedKeys().hasOnly([
             'title', 'prompt', 'status', 'version', 'aspectRatio', 'durationSec',
-            'runtime', 'routingMode', 'brandKit', 'pal', 'preProduction',
+            'runtime', 'routingMode', 'styleBlueprintId', 'brandKit', 'pal', 'preProduction',
             'timeline', 'mediaSelections', 'editHistory', 'updatedAt'
           ]) ||
           incoming().diff(existing()).affectedKeys().hasOnly([
@@ -208,13 +238,41 @@ service cloud.firestore {
         && incoming().id == existing().id
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'tags', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'tags', 'extractedBrandKit', 'updatedAt']);
       allow delete: if isSignedIn()
         && isValidId(assetId)
         && existing().ownerId == request.auth.uid;
     }
 
-    // Collection 4: /hermesMemories/{memoryId}
+    // Collection 4: /styleBlueprints/{blueprintId}
+    match /styleBlueprints/{blueprintId} {
+      allow get: if isSignedIn()
+        && isValidId(blueprintId)
+        && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn()
+        && existing().ownerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isValidId(blueprintId)
+        && isValidStyleBlueprint(incoming(), blueprintId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(blueprintId)
+        && isValidStyleBlueprint(incoming(), blueprintId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'description', 'specJson', 'usageCount', 'ratingScore', 'updatedAt'
+        ]);
+      allow delete: if isSignedIn()
+        && isValidId(blueprintId)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection 5: /hermesMemories/{memoryId}
     match /hermesMemories/{memoryId} {
       allow get: if isSignedIn()
         && isValidId(memoryId)

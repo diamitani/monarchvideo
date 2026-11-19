@@ -1,6 +1,21 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, Loader2, Lock, Mail, User as UserIcon } from 'lucide-react';
-import { signInWithEmail, signInWithGoogle, signUpWithEmail } from '../lib/firebase';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  Loader2,
+  Lock,
+  Mail,
+  ShieldCheck,
+  User as UserIcon,
+} from 'lucide-react';
+import {
+  sendPasswordReset,
+  signInWithEmail,
+  signInWithGoogle,
+  signUpWithEmail,
+} from '../lib/firebase';
 import { MonarchLogo } from './MonarchLogo';
 
 const AUTH_VISUAL = '/src/assets/images/monarch_hero_studio_1795058371767.jpg';
@@ -26,10 +41,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
+  const [showProdGuide, setShowProdGuide] = useState(false);
 
   const handleGoogleAuth = async () => {
     setBusy('google');
     setError(null);
+    setResetSuccess(null);
     try {
       await signInWithGoogle();
       onAuthSuccess();
@@ -37,6 +55,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('popup-closed-by-user')) {
         setError('Google sign-in window was closed. Please try again or use email below.');
+      } else if (msg.includes('unauthorized-domain')) {
+        setError(
+          'This domain is not yet authorized in Firebase Auth. Open the Production Auth Setup guide below to whitelist your Vercel domain.'
+        );
+        setShowProdGuide(true);
       } else {
         setError(msg.replace(/^Firebase:\s*/i, ''));
       }
@@ -50,6 +73,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
     if (!email.trim() || !password.trim()) return;
     setBusy('email');
     setError(null);
+    setResetSuccess(null);
     try {
       if (mode === 'signup') {
         await signUpWithEmail({
@@ -61,6 +85,25 @@ export const AuthView: React.FC<AuthViewProps> = ({
         await signInWithEmail({ email: email.trim(), password });
       }
       onAuthSuccess();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg.replace(/^Firebase:\s*/i, ''));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!email.trim()) {
+      setError('Enter your email address above first, then click Forgot password.');
+      return;
+    }
+    setBusy('reset');
+    setError(null);
+    setResetSuccess(null);
+    try {
+      await sendPasswordReset(email.trim());
+      setResetSuccess(`Password reset link sent to ${email.trim()}. Check your inbox.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg.replace(/^Firebase:\s*/i, ''));
@@ -105,11 +148,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
         <div className="relative z-10 max-w-md space-y-4">
           <p className="text-xs font-medium text-[#D4AF37]">Creator Workspace</p>
           <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-balance">
-            Direct, voice, and publish finished brand videos in one calm workspace.
+            Direct B-roll montages, auto-sync brand kits, and render H.264 MP4s in one studio.
           </h1>
           <p className="text-sm leading-relaxed text-slate-300">
-            Save drafts and published cuts to your cloud library, upload logos and reference media,
-            and edit any scene in plain English without starting over.
+            Save drafts and published cuts to your cloud library, upload brand guidelines or logos
+            for instant extraction, and edit any scene in plain English.
           </p>
           {pendingPrompt && (
             <div className="rounded-xl border border-white/15 bg-white/10 p-4 backdrop-blur-xs">
@@ -149,8 +192,8 @@ export const AuthView: React.FC<AuthViewProps> = ({
             </h2>
             <p className="mt-1.5 text-sm text-slate-600">
               {mode === 'signin'
-                ? 'Access your saved projects, brand files, and publishing tools.'
-                : 'Start directing brand videos with synced voiceover and editable scenes.'}
+                ? 'Access your saved projects, brand kits, B-roll library, and billing.'
+                : 'Start directing B-roll montages with synced voiceover and H.264 MP4 exports.'}
             </p>
           </div>
 
@@ -161,6 +204,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               onClick={() => {
                 setMode('signin');
                 setError(null);
+                setResetSuccess(null);
               }}
               className={`rounded-md py-2 text-xs font-semibold transition-colors ${
                 mode === 'signin'
@@ -175,6 +219,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               onClick={() => {
                 setMode('signup');
                 setError(null);
+                setResetSuccess(null);
               }}
               className={`rounded-md py-2 text-xs font-semibold transition-colors ${
                 mode === 'signup'
@@ -230,6 +275,13 @@ export const AuthView: React.FC<AuthViewProps> = ({
             </div>
           )}
 
+          {resetSuccess && (
+            <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{resetSuccess}</span>
+            </div>
+          )}
+
           <form onSubmit={handleEmailSubmit} className="space-y-4">
             {mode === 'signup' && (
               <div>
@@ -264,7 +316,19 @@ export const AuthView: React.FC<AuthViewProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-700">Password</label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-medium text-slate-700">Password</label>
+                {mode === 'signin' && (
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    onClick={() => void handlePasswordReset()}
+                    className="text-xs font-medium text-[#102D69] hover:underline"
+                  >
+                    {busy === 'reset' ? 'Sending...' : 'Forgot password?'}
+                  </button>
+                )}
+              </div>
               <div className="relative mt-1.5">
                 <Lock className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
                 <input
@@ -303,6 +367,40 @@ export const AuthView: React.FC<AuthViewProps> = ({
             >
               Continue in guest workspace without signing in
             </button>
+          </div>
+
+          {/* Production Auth Setup Guide for Vercel + GitHub Deployments */}
+          <div className="mt-5 rounded-xl border border-slate-200 bg-white p-3.5">
+            <button
+              type="button"
+              onClick={() => setShowProdGuide((prev) => !prev)}
+              className="flex w-full items-center justify-between text-left text-xs font-semibold text-slate-700"
+            >
+              <span className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-[#102D69]" />
+                <span>Deployed on Vercel? Enable Production Sign-In (2 steps)</span>
+              </span>
+              <ChevronDown
+                className={`h-4 w-4 text-slate-400 transition-transform ${
+                  showProdGuide ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+            {showProdGuide && (
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3 text-[11px] leading-relaxed text-slate-600">
+                <p>
+                  <strong className="text-slate-900">1. Enable Providers:</strong> In Firebase
+                  Console (<code className="font-mono text-[#102D69]">elite-rider-459015-b2</code>)
+                  → <strong>Authentication → Sign-in method</strong>, toggle on{' '}
+                  <strong>Email/Password</strong> and <strong>Google</strong>.
+                </p>
+                <p>
+                  <strong className="text-slate-900">2. Whitelist Vercel Domain:</strong> Go to{' '}
+                  <strong>Authentication → Settings → Authorized domains</strong> and add your{' '}
+                  <code className="font-mono text-[#102D69]">*.vercel.app</code> or custom domain.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

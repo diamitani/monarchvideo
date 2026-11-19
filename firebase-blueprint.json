@@ -2,7 +2,7 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "Authenticated Monarch Video creator profile with isolated PII.",
+      "description": "Authenticated Monarch Video creator profile with isolated PII, default synced Brand Kit, and subscription plan tier.",
       "type": "object",
       "properties": {
         "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
@@ -10,6 +10,8 @@
         "email": { "type": "string", "format": "email", "minLength": 3, "maxLength": 254 },
         "photoURL": { "type": "string", "maxLength": 1000 },
         "defaultBrandName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "defaultBrandKit": { "type": "object" },
+        "planTier": { "type": "string", "enum": ["starter", "creator", "studio"] },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -17,7 +19,7 @@
     },
     "VideoProjectDoc": {
       "title": "VideoProjectDoc",
-      "description": "User-owned video project including brief, storyboard, script, timeline, media selections, and publish status.",
+      "description": "User-owned video project including brief, storyboard, script, timeline, B-roll montage shots, media selections, style blueprint, and publish status.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -39,6 +41,7 @@
           "type": "string",
           "enum": ["managed-gateway", "byok-server"]
         },
+        "styleBlueprintId": { "type": "string", "maxLength": 128 },
         "brandKit": { "type": "object" },
         "pal": { "type": "object" },
         "preProduction": { "type": "object" },
@@ -67,21 +70,40 @@
     },
     "MediaAssetDoc": {
       "title": "MediaAssetDoc",
-      "description": "User-uploaded brand logos, stills, audio tracks, and reference files for video projects.",
+      "description": "User-uploaded brand logos, stills, B-roll video clips, audio tracks, and brand guideline documents.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "ownerId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-        "category": { "type": "string", "enum": ["logo", "image", "audio", "document"] },
+        "category": { "type": "string", "enum": ["logo", "image", "video", "audio", "document"] },
         "mimeType": { "type": "string", "minLength": 1, "maxLength": 120 },
         "sizeBytes": { "type": "number" },
         "url": { "type": "string", "minLength": 1, "maxLength": 1500 },
         "tags": { "type": "array" },
+        "extractedBrandKit": { "type": "object" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "ownerId", "name", "category", "mimeType", "sizeBytes", "url", "tags", "createdAt", "updatedAt"]
+    },
+    "StyleBlueprintDoc": {
+      "title": "StyleBlueprintDoc",
+      "description": "Self-improving JSON Cinema Style Blueprint capturing shot cadence, transitions, LUT color grading, and typography rules.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "archetype": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 1200 },
+        "specJson": { "type": "object" },
+        "usageCount": { "type": "number" },
+        "ratingScore": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "name", "archetype", "description", "specJson", "usageCount", "ratingScore", "createdAt", "updatedAt"]
     },
     "HermesMemoryDoc": {
       "title": "HermesMemoryDoc",
@@ -114,7 +136,11 @@
     },
     "/mediaAssets/{assetId}": {
       "schema": { "$ref": "#/entities/MediaAssetDoc" },
-      "description": "User-uploaded brand logos, stills, and audio assets."
+      "description": "User-uploaded brand logos, stills, B-roll video clips, audio assets, and brand documents."
+    },
+    "/styleBlueprints/{blueprintId}": {
+      "schema": { "$ref": "#/entities/StyleBlueprintDoc" },
+      "description": "User-saved and self-improving JSON Cinema Style Blueprints."
     },
     "/hermesMemories/{memoryId}": {
       "schema": { "$ref": "#/entities/HermesMemoryDoc" },

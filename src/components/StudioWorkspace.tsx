@@ -2,10 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { User } from 'firebase/auth';
 import {
   ArrowRight,
+  BookOpen,
   Check,
   CheckCircle2,
   Cloud,
+  Code2,
   Copy,
+  CreditCard,
   Download,
   FileAudio,
   FileImage,
@@ -24,22 +27,30 @@ import {
   Play,
   Plus,
   Plug,
+  Scissors,
   Search,
   Send,
+  ShieldCheck,
   Sliders,
   Sparkles,
+  ThumbsUp,
   Trash2,
   Upload,
+  Video,
   Volume2,
   Wand2,
   X,
+  Zap,
 } from 'lucide-react';
 import {
   deleteCloudMediaAsset,
   deleteUserCloudProject,
   loadUserCloudProjects,
   saveCloudMediaAsset,
+  saveCloudStyleBlueprint,
   saveUserCloudProject,
+  saveUserDefaultBrandKit,
+  updateUserPlanTier,
 } from '../lib/firebase';
 import { ProceduralStudioAudio } from '../lib/proceduralAudio';
 import type {
@@ -48,11 +59,15 @@ import type {
   AspectRatio,
   BootstrapReport,
   BrandKit,
+  BRollShot,
   CompiledTargets,
+  DesignStyleBlueprint,
   MediaAsset,
   MusicPresetId,
+  OpenMediaLibraryItem,
   OpenMontageVideoPresetId,
   PALOutput,
+  SubscriptionBillingState,
   UniversalVideoTimeline,
   VideoProject,
   VoiceoverClip,
@@ -63,8 +78,11 @@ import { AgentInspectorView } from './AgentInspectorView';
 import { MonarchLogo } from './MonarchLogo';
 import { VideoPreviewPlayer } from './VideoPreviewPlayer';
 
-type DashboardSection = 'projects' | 'create' | 'files' | 'models' | 'integrations';
+type DashboardSection = 'projects' | 'create' | 'files' | 'models' | 'integrations' | 'billing';
 type ProjectFilter = 'all' | 'drafts' | 'published';
+type SubscriptionPlanId = SubscriptionBillingState['planTier'];
+
+const LOOM_EMBED_URL = 'https://www.loom.com/embed/bc62e599848648bf933ad3c06727a091';
 
 const TEMPLATES = [
   { id: 'editorial-launch', name: 'Editorial Launch', note: 'Clean typography & gold rules' },
@@ -83,31 +101,36 @@ const VOICE_OPTIONS: Array<{
     id: 'Kore',
     label: 'Kore — Editorial Warmth',
     tone: 'Warm, composed, unhurried documentary narrator',
-    sampleLine: 'Welcome to Monarch Video. Describe your vision once, and refine every scene with calm precision.',
+    sampleLine:
+      'Welcome to Monarch Video. Describe your vision once, and refine every scene with calm precision.',
   },
   {
     id: 'Fenrir',
     label: 'Fenrir — Executive Authority',
     tone: 'Deep, understated, confident hardware launch voice',
-    sampleLine: 'Engineered from solid materials. Built for founders and studios who refuse to compromise on craft.',
+    sampleLine:
+      'Engineered from solid materials. Built for founders and studios who refuse to compromise on craft.',
   },
   {
     id: 'Puck',
     label: 'Puck — Crisp & Energetic',
     tone: 'Bright, agile, modern product launch host',
-    sampleLine: 'Meet the fastest way to turn a product announcement into a studio-ready launch film in minutes.',
+    sampleLine:
+      'Meet the fastest way to turn a product announcement into a studio-ready launch film in minutes.',
   },
   {
     id: 'Charon',
     label: 'Charon — Cinema Trailer',
     tone: 'Measured, atmospheric, resonant film voice',
-    sampleLine: 'Every frame has weight. Every silence has intention. Direct your story from start to finish.',
+    sampleLine:
+      'Every frame has weight. Every silence has intention. Direct your story from start to finish.',
   },
   {
     id: 'Zephyr',
     label: 'Zephyr — Friendly Guide',
     tone: 'Approachable, articulate product walkthrough narrator',
-    sampleLine: 'Here is how your team goes from a rough idea to a published, branded video without leaving one workspace.',
+    sampleLine:
+      'Here is how your team goes from a rough idea to a published, branded video without leaving one workspace.',
   },
 ];
 
@@ -150,6 +173,12 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function getBlueprintAvgCutSec(bp?: DesignStyleBlueprint | null): number {
+  if (!bp || !bp.shotCadenceSec?.length) return 1.8;
+  const avg = bp.shotCadenceSec.reduce((sum, n) => sum + n, 0) / bp.shotCadenceSec.length;
+  return Number(avg.toFixed(1));
+}
+
 export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   user,
   initialPrompt = '',
@@ -160,6 +189,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   const [section, setSection] = useState<DashboardSection>(initialPrompt ? 'create' : 'projects');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [loomModalOpen, setLoomModalOpen] = useState(false);
 
   // Library & App Data
   const [projects, setProjects] = useState<VideoProject[]>([]);
@@ -171,12 +201,28 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   const [bootstrap, setBootstrap] = useState<BootstrapReport | null>(null);
   const [cloudSynced, setCloudSynced] = useState(false);
 
+  // Style Blueprints, Open Media Hub & Billing State
+  const [styleBlueprints, setStyleBlueprints] = useState<DesignStyleBlueprint[]>([]);
+  const [selectedStyleBlueprintId, setSelectedStyleBlueprintId] = useState<string>('style-rapid-hardware');
+  const [showStyleJsonDrawer, setShowStyleJsonDrawer] = useState(false);
+  const [newStylePrompt, setNewStylePrompt] = useState('');
+  const [mediaLibraryItems, setMediaLibraryItems] = useState<OpenMediaLibraryItem[]>([]);
+  const [mediaSearchQuery, setMediaSearchQuery] = useState('');
+  const [mediaSourceFilter, setMediaSourceFilter] = useState<string>('all');
+  const [searchingMedia, setSearchingMedia] = useState(false);
+  const [billingState, setBillingState] = useState<SubscriptionBillingState | null>(null);
+
+  // Brand Auto-Sync State (Supports both Mode 1: Immediate Auto-Sync and Mode 2: Confirm & Sync Banner)
+  const [autoSyncUploads, setAutoSyncUploads] = useState<boolean>(false);
+  const [detectedBrandKit, setDetectedBrandKit] = useState<Partial<BrandKit> | null>(null);
+  const [detectedBrandSummary, setDetectedBrandSummary] = useState<string | null>(null);
+
   // Active Video Creation / Editor State
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [projectStatus, setProjectStatus] = useState<VideoProject['status']>('draft');
   const [prompt, setPrompt] = useState(
     initialPrompt ||
-      'Create a 24-second product launch video introducing our architectural acoustic desk lamp, highlighting warm brass craft and calm workspace focus.'
+      'Create a 24-second product launch video introducing our architectural acoustic desk lamp, highlighting warm brass craft, rapid B-roll cuts, and calm workspace focus.'
   );
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
   const [durationSec, setDurationSec] = useState<number>(24);
@@ -189,6 +235,8 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     surfaceColor: '#FAFBFD',
     fontPairing: 'Plus Jakarta Sans + DM Sans',
     logoStyle: 'monarch-crest',
+    logoPlacement: 'watermark-and-outro',
+    autoSyncEnabled: false,
   });
   const [attachedAssetIds, setAttachedAssetIds] = useState<string[]>([]);
 
@@ -206,7 +254,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   const [compiled, setCompiled] = useState<CompiledTargets | null>(null);
   const [editHistory, setEditHistory] = useState<VideoProject['editHistory']>([]);
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
-  const [detailTab, setDetailTab] = useState<'storyboard' | 'script' | 'treatment' | 'export'>('storyboard');
+  const [detailTab, setDetailTab] = useState<'storyboard' | 'broll' | 'script' | 'treatment' | 'export'>('storyboard');
   const [codeTab, setCodeTab] = useState<'html' | 'tsx' | 'json'>('html');
 
   // Conversational Edit & Async Status
@@ -222,20 +270,30 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
   const auditionAudioRef = useRef<HTMLAudioElement | null>(null);
   const previewMusicRef = useRef<ProceduralStudioAudio | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const quickBrandInputRef = useRef<HTMLInputElement | null>(null);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg((prev) => (prev === msg ? null : prev)), 3200);
+    setTimeout(() => setToastMsg((prev) => (prev === msg ? null : prev)), 3600);
   };
+
+  const activeStyleBlueprint = useMemo(
+    () =>
+      styleBlueprints.find((bp) => bp.id === selectedStyleBlueprintId) || styleBlueprints[0] || null,
+    [styleBlueprints, selectedStyleBlueprintId]
+  );
 
   // Load backend workspace data + merge user's Firestore cloud projects if signed in
   const loadWorkspaceData = async () => {
     try {
-      const [pRes, aRes, iRes, bRes] = await Promise.all([
+      const [pRes, aRes, iRes, bRes, sRes, mRes, billRes] = await Promise.all([
         fetch('/api/studio/projects'),
         fetch('/api/assets'),
         fetch('/api/integrations'),
         fetch('/api/agent/bootstrap'),
+        fetch('/api/studio/style-blueprints'),
+        fetch('/api/media/library'),
+        fetch(`/api/billing/status${user?.uid ? `?uid=${encodeURIComponent(user.uid)}` : ''}`),
       ]);
 
       let localProjects: VideoProject[] = [];
@@ -253,6 +311,20 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
       }
       if (bRes.ok) {
         setBootstrap(await bRes.json());
+      }
+      if (sRes.ok) {
+        const data = await sRes.json();
+        if (data.blueprints?.length) {
+          setStyleBlueprints(data.blueprints);
+        }
+      }
+      if (mRes.ok) {
+        const data = await mRes.json();
+        setMediaLibraryItems(data.items || []);
+      }
+      if (billRes.ok) {
+        const data = await billRes.json();
+        setBillingState(data.billing || null);
       }
 
       if (user) {
@@ -300,6 +372,20 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
       setSection('create');
     }
   }, [initialPrompt]);
+
+  // Check URL query parameters for Stripe checkout success callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const billingResult = params.get('billing');
+    const upgradedPlan = params.get('plan') as SubscriptionPlanId | null;
+    if (billingResult === 'success' && upgradedPlan) {
+      showToast(`Subscription upgraded to ${upgradedPlan.toUpperCase()}!`);
+      if (user) {
+        void updateUserPlanTier(user.uid, upgradedPlan);
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [user]);
 
   const persistProject = async (next: VideoProject) => {
     setProjects((prev) => {
@@ -360,6 +446,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     setSelectedMotion(proj.mediaSelections?.animationPreset || 'kinetic-editorial');
     setSelectedLook(proj.mediaSelections?.videoPreset || 'royal-architectural');
     setVoiceoverClips(proj.mediaSelections?.voiceover.clips || []);
+    if (proj.styleBlueprintId) {
+      setSelectedStyleBlueprintId(proj.styleBlueprintId);
+    }
     setLastPatchNote(null);
     setErrorMsg(null);
     setSection('create');
@@ -376,7 +465,11 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
       });
       const updated: VideoProject = res.ok
         ? (await res.json()).project
-        : { ...proj, status: willPublish ? 'published' : 'compiled', updatedAt: new Date().toISOString() };
+        : {
+            ...proj,
+            status: willPublish ? 'published' : 'compiled',
+            updatedAt: new Date().toISOString(),
+          };
 
       setProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       if (activeProjectId === updated.id) {
@@ -385,7 +478,11 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
       if (user) {
         void saveUserCloudProject(user.uid, updated);
       }
-      showToast(willPublish ? `"${updated.title}" moved to Published.` : `"${updated.title}" moved back to Drafts.`);
+      showToast(
+        willPublish
+          ? `"${updated.title}" moved to Published.`
+          : `"${updated.title}" moved back to Drafts.`
+      );
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
     }
@@ -405,6 +502,62 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     } catch (err) {
       console.error('Delete project error:', err);
     }
+  };
+
+  // --- Apply Detected Brand Kit (Syncs to Active Project, Timeline, and Cloud Default) ---
+  const applyExtractedBrandKit = async (extracted: Partial<BrandKit>, summaryNote?: string) => {
+    const merged: BrandKit = {
+      ...brandKit,
+      ...extracted,
+      brandName: extracted.brandName || brandKit.brandName,
+      tagline: extracted.tagline || brandKit.tagline,
+      primaryColor: extracted.primaryColor || brandKit.primaryColor,
+      accentColor: extracted.accentColor || brandKit.accentColor,
+      surfaceColor: extracted.surfaceColor || brandKit.surfaceColor,
+      fontPairing: extracted.fontPairing || brandKit.fontPairing,
+      logoStyle: extracted.logoStyle || brandKit.logoStyle,
+      logoUrl: extracted.logoUrl || brandKit.logoUrl,
+      logoPlacement: extracted.logoPlacement || brandKit.logoPlacement || 'watermark-and-outro',
+      autoSyncEnabled: autoSyncUploads,
+    };
+    setBrandKit(merged);
+    setDetectedBrandKit(null);
+    setDetectedBrandSummary(null);
+
+    if (user) {
+      void saveUserDefaultBrandKit(user.uid, merged);
+    }
+
+    // If a live video cut is already open, re-sync the brand kit into the timeline & compiled code immediately
+    if (timeline && pal && preProduction) {
+      try {
+        const res = await fetch('/api/studio/compile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectId: activeProjectId,
+            pal,
+            preProduction,
+            brandKit: merged,
+            animationPreset: selectedMotion,
+            videoPreset: selectedLook,
+            styleBlueprintId: selectedStyleBlueprintId,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setTimeline(data.timeline);
+          setCompiled(data.compiled);
+        }
+      } catch (err) {
+        console.error('Live brand kit recompile error:', err);
+      }
+    }
+
+    showToast(
+      summaryNote ||
+        `Synced "${merged.brandName}" (${merged.primaryColor} · ${merged.accentColor}) to your video.`
+    );
   };
 
   // --- Creator Pipeline Step 1: Plan & Creative Direction ---
@@ -463,6 +616,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
         routingMode: 'managed-gateway',
         brandKit,
         attachedAssetIds,
+        styleBlueprintId: selectedStyleBlueprintId,
         mediaSelections: {
           voiceover: {
             voiceName: selectedVoice,
@@ -533,6 +687,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           updatedAt: new Date().toISOString(),
           pal,
           preProduction: data.preProduction,
+          styleBlueprintId: selectedStyleBlueprintId,
         });
       }
     } catch (err) {
@@ -542,10 +697,10 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     }
   };
 
-  // --- Creator Pipeline Step 3: Build Live Interactive Video Cut ---
+  // --- Creator Pipeline Step 3: Build Live Interactive Video Cut (with 4-Source B-Roll Montage) ---
   const handleBuildVideoCut = async () => {
     if (!pal || !preProduction || busyStage) return;
-    setBusyStage('Building your live video cut...');
+    setBusyStage('Choreographing B-roll montage & building live cut...');
     setErrorMsg(null);
     try {
       const res = await fetch('/api/studio/compile', {
@@ -558,6 +713,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           brandKit,
           animationPreset: selectedMotion,
           videoPreset: selectedLook,
+          styleBlueprintId: selectedStyleBlueprintId,
         }),
       });
       const data = await res.json();
@@ -590,9 +746,10 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           preProduction,
           timeline: data.timeline,
           compiled: data.compiled,
+          styleBlueprintId: selectedStyleBlueprintId,
         });
       }
-      showToast('Your live video cut is ready to play and refine.');
+      showToast('Your live B-roll montage cut is ready to play, refine, and render to MP4.');
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
     } finally {
@@ -666,22 +823,25 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     }
   };
 
-  // --- Update Music / Motion / Visual Look on Active Video ---
+  // --- Update Music / Motion / Visual Look / Cinema Style Blueprint on Active Video ---
   const handleApplyMediaStyle = async (next: {
     musicPreset?: MusicPresetId;
     animationPreset?: AnimationPresetId;
     videoPreset?: OpenMontageVideoPresetId;
+    styleBlueprintId?: string;
   }) => {
     const nextMusic = next.musicPreset || selectedMusic;
     const nextMotion = next.animationPreset || selectedMotion;
     const nextLook = next.videoPreset || selectedLook;
+    const nextStyleId = next.styleBlueprintId || selectedStyleBlueprintId;
 
     setSelectedMusic(nextMusic);
     setSelectedMotion(nextMotion);
     setSelectedLook(nextLook);
+    setSelectedStyleBlueprintId(nextStyleId);
 
     if (!timeline) return;
-    setBusyStage('Updating video style...');
+    setBusyStage('Updating montage cadence & visual look...');
     try {
       const res = await fetch('/api/studio/media-select', {
         method: 'POST',
@@ -691,6 +851,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           musicPreset: nextMusic,
           animationPreset: nextMotion,
           videoPreset: nextLook,
+          styleBlueprintId: nextStyleId,
         }),
       });
       const data = await res.json();
@@ -705,6 +866,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             updatedAt: new Date().toISOString(),
             timeline: data.timeline,
             compiled: data.compiled,
+            styleBlueprintId: nextStyleId,
             mediaSelections: {
               voiceover: {
                 voiceName: selectedVoice,
@@ -725,7 +887,95 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           });
         }
       }
-      showToast('Video look & motion updated.');
+      showToast('Montage style & B-roll cadence updated.');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyStage(null);
+    }
+  };
+
+  // --- Self-Improving Cinema Style Blueprint Feedback ("Sharper cuts", "Love this pacing", "More cinematic") ---
+  const handleStyleFeedback = async (feedback: 'sharper' | 'liked' | 'slower') => {
+    if (!activeStyleBlueprint || busyStage) return;
+    setBusyStage(
+      feedback === 'sharper'
+        ? 'Tightening B-roll montage cut cadence...'
+        : feedback === 'slower'
+          ? 'Applying longer cinematic B-roll holds...'
+          : 'Saving style preference to Hermes memory...'
+    );
+    try {
+      const res = await fetch(
+        `/api/studio/style-blueprints/${encodeURIComponent(activeStyleBlueprint.id)}/feedback`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectId: activeProjectId,
+            feedback,
+          }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Feedback update failed.');
+
+      if (data.blueprint) {
+        setStyleBlueprints((prev) =>
+          prev.map((bp) => (bp.id === data.blueprint.id ? data.blueprint : bp))
+        );
+        if (user) {
+          void saveCloudStyleBlueprint(user.uid, data.blueprint);
+        }
+      }
+      if (data.project?.timeline) {
+        setTimeline(data.project.timeline);
+        if (data.project.compiled) setCompiled(data.project.compiled);
+      } else if (timeline) {
+        await handleApplyMediaStyle({ styleBlueprintId: activeStyleBlueprint.id });
+      }
+      const nextCutSec = getBlueprintAvgCutSec(data.blueprint || activeStyleBlueprint);
+      showToast(
+        feedback === 'sharper'
+          ? `Sharper cuts (${nextCutSec}s) applied & logged to Hermes memory.`
+          : feedback === 'slower'
+            ? `Cinematic pacing (${nextCutSec}s) applied & logged.`
+            : `Style preference saved (${data.blueprint?.usageCount || 1} total uses).`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyStage(null);
+    }
+  };
+
+  // --- Reverse-Engineer Custom JSON Cinema Style Blueprint ---
+  const handleExtractStyleBlueprint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStylePrompt.trim() || busyStage) return;
+    setBusyStage('Reverse-engineering JSON Cinema Style Blueprint...');
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/studio/style-blueprints/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          referenceDescription: newStylePrompt.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not extract style blueprint.');
+      const bp: DesignStyleBlueprint = data.blueprint;
+      setStyleBlueprints((prev) => [bp, ...prev]);
+      setSelectedStyleBlueprintId(bp.id);
+      setNewStylePrompt('');
+      if (user) {
+        void saveCloudStyleBlueprint(user.uid, bp);
+      }
+      if (timeline) {
+        await handleApplyMediaStyle({ styleBlueprintId: bp.id });
+      }
+      showToast(`Created "${bp.name}" (${getBlueprintAvgCutSec(bp)}s cuts) style blueprint.`);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
     } finally {
@@ -789,14 +1039,14 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     }
   };
 
-  // --- Content & Files Upload / Delete ---
+  // --- Content & Files Upload + Smart Brand Doc / Logo Auto-Extraction ---
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
 
-    if (file.size > 9 * 1024 * 1024) {
-      setErrorMsg('Please choose a file under 9 MB.');
+    if (file.size > 15 * 1024 * 1024) {
+      setErrorMsg('Please choose a file under 15 MB.');
       return;
     }
 
@@ -827,6 +1077,56 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
       if (user) {
         void saveCloudMediaAsset(user.uid, uploaded);
       }
+
+      // Automatically attach to active brief
+      setAttachedAssetIds((prev) => (prev.includes(uploaded.id) ? prev : [...prev, uploaded.id]));
+
+      // If this is a logo, image, or brand document (.pdf, .md, .txt, .json), run multimodal Brand Kit extraction
+      const isBrandCandidate =
+        uploaded.category === 'logo' ||
+        uploaded.category === 'document' ||
+        uploaded.category === 'image';
+
+      if (isBrandCandidate) {
+        setBusyStage(`Extracting brand identity from ${uploaded.name}...`);
+        let textContent = '';
+        if (file.type.startsWith('text/') || /\.(md|txt|json)$/i.test(file.name)) {
+          textContent = await file.text();
+        }
+        const extractRes = await fetch('/api/brand/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            assetId: uploaded.id,
+            name: uploaded.name,
+            mimeType: uploaded.mimeType,
+            dataBase64,
+            textContent,
+            currentBrandKit: brandKit,
+          }),
+        });
+        if (extractRes.ok) {
+          const extractData = await extractRes.json();
+          if (extractData.extractedBrandKit) {
+            if (autoSyncUploads) {
+              // Mode 1: Auto-sync immediately into active Brand Kit
+              await applyExtractedBrandKit(
+                extractData.extractedBrandKit,
+                `Auto-synced brand kit from "${uploaded.name}" (${extractData.summary || 'Colors & logo updated'}).`
+              );
+            } else {
+              // Mode 2: Show 1-click "Brand Kit Detected — Confirm & Sync" banner
+              setDetectedBrandKit(extractData.extractedBrandKit);
+              setDetectedBrandSummary(
+                extractData.summary || `Extracted brand tokens from ${uploaded.name}`
+              );
+              showToast(`Brand tokens detected in "${uploaded.name}". Review banner to sync.`);
+            }
+            return;
+          }
+        }
+      }
+
       showToast(`Uploaded "${uploaded.name}" to Content & Files.`);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : String(err));
@@ -847,6 +1147,74 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     } catch (err) {
       console.error('Delete asset error:', err);
     }
+  };
+
+  // --- Search Open-Source & Composio Media Library Hub ---
+  const handleSearchOpenMedia = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setSearchingMedia(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/media/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: mediaSearchQuery.trim() || 'cinematic product technology architecture',
+          source: mediaSourceFilter,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Media search failed.');
+      setMediaLibraryItems(data.items || []);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSearchingMedia(false);
+    }
+  };
+
+  // --- Inject a B-Roll Video Clip from Open Media Hub into the Active Scene ---
+  const handleUseMediaClipInScene = async (clip: OpenMediaLibraryItem) => {
+    if (!timeline) {
+      setPrompt((prev) => `${prev} (Include B-roll clip: ${clip.title})`);
+      setSection('create');
+      showToast(`Added "${clip.title}" to your video brief.`);
+      return;
+    }
+
+    const targetSceneId = activeSceneId || timeline.scenes[0]?.id;
+    if (!targetSceneId) return;
+
+    const updatedScenes = timeline.scenes.map((scene) => {
+      if (scene.id !== targetSceneId) return scene;
+      const existingShots = scene.brollShots || [];
+      const cutDur = getBlueprintAvgCutSec(activeStyleBlueprint);
+      const newShot: BRollShot = {
+        id: `shot-${Date.now().toString(36)}`,
+        source: clip.platform,
+        title: clip.title,
+        clipUrl: clip.url,
+        posterUrl: clip.previewUrl,
+        startOffsetSec: 0,
+        durationSec: Math.min(cutDur, scene.durationSec),
+        cutTransition: 'hard-cut',
+        kenBurns: 'dolly-in',
+        author: clip.author,
+        license: clip.license,
+      };
+      return {
+        ...scene,
+        brollShots: [newShot, ...existingShots.slice(0, 2)],
+      };
+    });
+
+    const nextTimeline: UniversalVideoTimeline = {
+      ...timeline,
+      scenes: updatedScenes,
+    };
+    setTimeline(nextTimeline);
+    setSection('create');
+    showToast(`Inserted "${clip.title}" into Scene B-Roll track.`);
   };
 
   // --- Voice Audition (Real Gemini 3.8 TTS WAV) & Music Preview ---
@@ -913,6 +1281,65 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     }
   };
 
+  // --- Stripe Subscription Checkout & Customer Portal ---
+  const handleStripeCheckout = async (planId: SubscriptionPlanId) => {
+    setBusyStage(`Starting ${planId} checkout...`);
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId,
+          uid: user?.uid || 'guest',
+          email: user?.email || undefined,
+          returnUrl: window.location.origin,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not initiate checkout.');
+      if (data.billing) {
+        setBillingState(data.billing);
+      }
+      if (user) {
+        void updateUserPlanTier(user.uid, planId);
+      }
+      if (data.mode === 'live-stripe' && data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+      showToast(data.message || `Activated ${planId.toUpperCase()} plan.`);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyStage(null);
+    }
+  };
+
+  const handleStripePortal = async () => {
+    setBusyStage('Opening billing portal...');
+    try {
+      const res = await fetch('/api/billing/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: user?.uid || 'guest',
+          returnUrl: window.location.origin,
+        }),
+      });
+      const data = await res.json();
+      if (data.mode === 'live-stripe' && data.portalUrl) {
+        window.location.href = data.portalUrl;
+        return;
+      }
+      showToast(data.message || 'Billing portal ready.');
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyStage(null);
+    }
+  };
+
   const downloadExportFile = (filename: string, content: string, mime: string) => {
     const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
@@ -940,8 +1367,14 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
     });
   }, [projects, projectFilter, projectSearch]);
 
-  const draftCount = useMemo(() => projects.filter((p) => p.status !== 'published').length, [projects]);
-  const publishedCount = useMemo(() => projects.filter((p) => p.status === 'published').length, [projects]);
+  const draftCount = useMemo(
+    () => projects.filter((p) => p.status !== 'published').length,
+    [projects]
+  );
+  const publishedCount = useMemo(
+    () => projects.filter((p) => p.status === 'published').length,
+    [projects]
+  );
 
   const filteredAssets = useMemo(() => {
     if (assetCategoryFilter === 'all') return assets;
@@ -993,13 +1426,19 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             [
               { id: 'projects', label: 'Projects', icon: FolderOpen, count: projects.length },
               { id: 'create', label: 'Video Editor', icon: Film, count: null },
-              { id: 'files', label: 'Content & Files', icon: Upload, count: assets.length },
+              { id: 'files', label: 'Content & B-Roll Hub', icon: Upload, count: assets.length },
               { id: 'models', label: 'Models & Voices', icon: Mic, count: null },
               {
                 id: 'integrations',
                 label: 'Integrations',
                 icon: Plug,
                 count: integrations.filter((i) => i.connected).length,
+              },
+              {
+                id: 'billing',
+                label: 'Billing & Launch Guide',
+                icon: CreditCard,
+                count: null,
               },
             ] as const
           ).map((item) => {
@@ -1047,7 +1486,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               className="flex w-full items-center justify-between text-slate-300 transition-colors hover:text-white"
             >
               <span>Drafts</span>
-              <span className="font-mono text-[11px] tabular-nums text-slate-400">{draftCount}</span>
+              <span className="font-mono text-[11px] tabular-nums text-slate-400">
+                {draftCount}
+              </span>
             </button>
             <button
               type="button"
@@ -1059,7 +1500,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               className="flex w-full items-center justify-between text-slate-300 transition-colors hover:text-white"
             >
               <span>Published</span>
-              <span className="font-mono text-[11px] tabular-nums text-[#D4AF37]">{publishedCount}</span>
+              <span className="font-mono text-[11px] tabular-nums text-[#D4AF37]">
+                {publishedCount}
+              </span>
             </button>
           </div>
         </div>
@@ -1071,10 +1514,10 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
           <button
             type="button"
             onClick={() => setDiagnosticsOpen(true)}
-            className="inline-flex items-center gap-1.5 transition-colors hover:text-white"
+            className="inline-flex items-center gap-1.5 font-medium text-[#D4AF37] transition-colors hover:text-white"
           >
             <Sliders className="h-3.5 w-3.5" />
-            <span>Diagnostics</span>
+            <span>Agent Soul & Covenant</span>
           </button>
           <button
             type="button"
@@ -1105,7 +1548,10 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                 <p className="truncate text-xs font-semibold text-white">
                   {user.displayName || 'Creator'}
                 </p>
-                <p className="truncate text-[10px] text-slate-400">{user.email}</p>
+                <p className="truncate text-[10px] text-slate-400">
+                  {billingState?.planTier ? `${billingState.planTier.toUpperCase()} · ` : ''}
+                  {user.email}
+                </p>
               </div>
             </div>
             <button
@@ -1136,6 +1582,15 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
 
   return (
     <div className="flex min-h-screen bg-[#FAFBFD] text-slate-900">
+      {/* Hidden Quick Brand Doc / Logo File Input */}
+      <input
+        ref={quickBrandInputRef}
+        type="file"
+        accept="image/*,video/mp4,video/webm,.pdf,.txt,.md,.json"
+        onChange={(e) => void handleFileSelected(e)}
+        className="hidden"
+      />
+
       {/* Desktop Fixed Sidebar */}
       <aside className="hidden w-[256px] shrink-0 lg:block">
         <div className="sticky top-0 h-screen">{sidebarContent}</div>
@@ -1170,21 +1625,39 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             <div>
               <h1 className="font-display text-base font-bold tracking-tight text-slate-900">
                 {section === 'projects' && 'Projects'}
-                {section === 'create' && (preProduction?.projectBrief.title || pal?.parseData.topic || 'New Video')}
-                {section === 'files' && 'Content & Files'}
+                {section === 'create' &&
+                  (preProduction?.projectBrief.title || pal?.parseData.topic || 'New Video')}
+                {section === 'files' && 'Content, Brand Docs & B-Roll Hub'}
                 {section === 'models' && 'Models & Voices'}
                 {section === 'integrations' && 'Integrations'}
+                {section === 'billing' && 'Billing & Production Launch Guide'}
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             {user && cloudSynced && (
               <span className="hidden items-center gap-1.5 text-xs text-slate-500 sm:inline-flex">
                 <Cloud className="h-3.5 w-3.5 text-emerald-600" />
                 <span>Cloud synced</span>
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => setLoomModalOpen(true)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0"
+            >
+              <Video className="h-3.5 w-3.5 text-[#102D69]" />
+              <span className="hidden sm:inline">Watch Walkthrough</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDiagnosticsOpen(true)}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-[#102D69] transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0"
+            >
+              <BookOpen className="h-3.5 w-3.5 text-[#9A7B1C]" />
+              <span className="hidden md:inline">SOUL.md & Covenant</span>
+            </button>
             {section === 'create' && activeProjectId && timeline && (
               <button
                 type="button"
@@ -1222,7 +1695,11 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               <Check className="h-4 w-4" />
               {toastMsg}
             </span>
-            <button type="button" onClick={() => setToastMsg(null)} className="text-emerald-700 hover:text-emerald-950">
+            <button
+              type="button"
+              onClick={() => setToastMsg(null)}
+              className="text-emerald-700 hover:text-emerald-950"
+            >
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -1231,9 +1708,81 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
         {errorMsg && (
           <div className="mx-6 mt-4 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-medium text-red-700">
             <span>{errorMsg}</span>
-            <button type="button" onClick={() => setErrorMsg(null)} className="text-red-600 hover:text-red-900">
+            <button
+              type="button"
+              onClick={() => setErrorMsg(null)}
+              className="text-red-600 hover:text-red-900"
+            >
               <X className="h-3.5 w-3.5" />
             </button>
+          </div>
+        )}
+
+        {/* Smart Brand Kit Detected — Confirm & Sync Banner (Mode 2) */}
+        {detectedBrandKit && (
+          <div className="mx-6 mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border-2 border-[#102D69] bg-white px-5 py-3.5 shadow-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              {detectedBrandKit.logoUrl && (
+                <img
+                  src={detectedBrandKit.logoUrl}
+                  alt={detectedBrandKit.brandName || 'Extracted logo'}
+                  className="h-9 w-9 rounded-lg border border-slate-200 bg-slate-50 object-contain p-1"
+                />
+              )}
+              <div>
+                <p className="text-xs font-bold text-[#102D69]">
+                  Brand Kit Detected — {detectedBrandKit.brandName || brandKit.brandName}
+                </p>
+                <p className="text-[11px] text-slate-600">
+                  {detectedBrandSummary} · Font:{' '}
+                  {detectedBrandKit.fontPairing || brandKit.fontPairing}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 pl-2">
+                <span
+                  className="h-5 w-5 rounded-md border border-slate-300"
+                  title={`Primary: ${detectedBrandKit.primaryColor}`}
+                  style={{
+                    backgroundColor: detectedBrandKit.primaryColor || brandKit.primaryColor,
+                  }}
+                />
+                <span
+                  className="h-5 w-5 rounded-md border border-slate-300"
+                  title={`Accent: ${detectedBrandKit.accentColor}`}
+                  style={{
+                    backgroundColor: detectedBrandKit.accentColor || brandKit.accentColor,
+                  }}
+                />
+                <span
+                  className="h-5 w-5 rounded-md border border-slate-300"
+                  title={`Surface: ${detectedBrandKit.surfaceColor}`}
+                  style={{
+                    backgroundColor: detectedBrandKit.surfaceColor || brandKit.surfaceColor,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void applyExtractedBrandKit(detectedBrandKit)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#102D69] px-3.5 text-xs font-semibold text-white hover:bg-[#091A3E] whitespace-nowrap shrink-0"
+              >
+                <Check className="h-3.5 w-3.5 text-[#D4AF37]" />
+                <span>Confirm & Sync to Video</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDetectedBrandKit(null);
+                  setDetectedBrandSummary(null);
+                }}
+                className="inline-flex h-8 items-center rounded-lg border border-slate-200 px-2.5 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
 
@@ -1317,7 +1866,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                           >
                             <div className="flex w-full items-center justify-between text-[11px] font-medium">
                               <span className="font-mono text-white/80">
-                                {proj.aspectRatio} · {proj.durationSec}s
+                                {proj.aspectRatio} · {proj.durationSec}s · B-Roll Montage
                               </span>
                               <span
                                 className={`rounded-md px-2 py-0.5 text-[10px] font-semibold ${
@@ -1345,7 +1894,8 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                               {proj.prompt}
                             </p>
                             <p className="mt-3 font-mono text-[11px] text-slate-400">
-                              v{proj.version} · Updated {new Date(proj.updatedAt).toLocaleDateString()}
+                              v{proj.version} · Updated{' '}
+                              {new Date(proj.updatedAt).toLocaleDateString()}
                             </p>
                           </div>
                         </div>
@@ -1392,9 +1942,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white px-5 py-3.5">
                 <div className="flex flex-wrap items-center gap-6 text-xs">
                   {[
-                    { num: '01', label: 'Creative Brief', done: currentStepIndex >= 1 },
+                    { num: '01', label: 'Brief & Brand Auto-Sync', done: currentStepIndex >= 1 },
                     { num: '02', label: 'Storyboard & Script', done: currentStepIndex >= 2 },
-                    { num: '03', label: 'Studio Cut & Export', done: currentStepIndex >= 3 },
+                    { num: '03', label: 'B-Roll Cut & MP4 Render', done: currentStepIndex >= 3 },
                   ].map((step, i) => (
                     <div key={step.num} className="flex items-center gap-2">
                       <span
@@ -1426,7 +1976,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                 )}
               </div>
 
-              {/* Brief Composer (Always editable at top before cut, or collapsible when cut is live) */}
+              {/* Brief Composer */}
               {!timeline ? (
                 <div className="grid gap-6 lg:grid-cols-12">
                   <form
@@ -1438,28 +1988,31 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         What video do you want to make?
                       </label>
                       <p className="mt-0.5 text-xs text-slate-500">
-                        Describe the product, audience, mood, and call to action in plain English.
+                        Describe the product, audience, B-roll montage mood, and call to action in
+                        plain English.
                       </p>
                       <textarea
                         rows={4}
                         value={prompt}
                         onChange={(e) => setPrompt(e.target.value)}
-                        placeholder="e.g. A 24-second launch film introducing our matte-brass pour-over kettle..."
+                        placeholder="e.g. A 24-second launch film introducing our matte-brass pour-over kettle with rapid 1.8s B-roll sub-cuts..."
                         className="mt-3 w-full rounded-xl border border-slate-200 bg-[#FAFBFD] px-3.5 py-3 text-sm text-slate-900 outline-none focus:border-[#102D69]"
                       />
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div>
-                        <label className="block text-xs font-medium text-slate-700">Template</label>
+                        <label className="block text-xs font-medium text-slate-700">
+                          Cinema Style Blueprint
+                        </label>
                         <select
-                          value={templateId}
-                          onChange={(e) => setTemplateId(e.target.value)}
+                          value={selectedStyleBlueprintId}
+                          onChange={(e) => setSelectedStyleBlueprintId(e.target.value)}
                           className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 outline-none focus:border-[#102D69]"
                         >
-                          {TEMPLATES.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
+                          {styleBlueprints.map((bp) => (
+                            <option key={bp.id} value={bp.id}>
+                              {bp.name} ({getBlueprintAvgCutSec(bp)}s cuts)
                             </option>
                           ))}
                         </select>
@@ -1492,39 +2045,88 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       </div>
                     </div>
 
-                    <div className="grid gap-4 border-t border-slate-100 pt-4 sm:grid-cols-3">
-                      <div className="sm:col-span-2">
-                        <label className="block text-xs font-medium text-slate-700">Brand Name</label>
-                        <input
-                          type="text"
-                          value={brandKit.brandName}
-                          onChange={(e) => setBrandKit((b) => ({ ...b, brandName: e.target.value }))}
-                          className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-900 outline-none focus:border-[#102D69]"
-                        />
+                    {/* Brand Identity + Smart Brand Doc / Logo Auto-Sync Bar */}
+                    <div className="space-y-3 border-t border-slate-100 pt-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-semibold text-slate-900">
+                            Brand Kit & Logo Auto-Sync
+                          </span>
+                          {brandKit.sourceDocName && (
+                            <span className="font-mono text-[11px] text-emerald-700">
+                              · Synced from {brandKit.sourceDocName}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <label className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-600">
+                            <input
+                              type="checkbox"
+                              checked={autoSyncUploads}
+                              onChange={(e) => setAutoSyncUploads(e.target.checked)}
+                              className="rounded border-slate-300 text-[#102D69]"
+                            />
+                            <span>Auto-sync uploads immediately</span>
+                          </label>
+                          <button
+                            type="button"
+                            disabled={Boolean(busyStage)}
+                            onClick={() => quickBrandInputRef.current?.click()}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-[#FAFBFD] px-3 text-xs font-semibold text-[#102D69] hover:bg-slate-100 whitespace-nowrap shrink-0"
+                          >
+                            <Upload className="h-3.5 w-3.5" />
+                            <span>Upload Brand Doc / Logo</span>
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-end gap-3">
-                        <label className="flex flex-1 flex-col text-xs font-medium text-slate-700">
-                          <span>Primary</span>
-                          <input
-                            type="color"
-                            value={brandKit.primaryColor}
-                            onChange={(e) =>
-                              setBrandKit((b) => ({ ...b, primaryColor: e.target.value }))
-                            }
-                            className="mt-1.5 h-10 w-full cursor-pointer rounded-lg border border-slate-200 bg-white p-1"
-                          />
-                        </label>
-                        <label className="flex flex-1 flex-col text-xs font-medium text-slate-700">
-                          <span>Accent</span>
-                          <input
-                            type="color"
-                            value={brandKit.accentColor}
-                            onChange={(e) =>
-                              setBrandKit((b) => ({ ...b, accentColor: e.target.value }))
-                            }
-                            className="mt-1.5 h-10 w-full cursor-pointer rounded-lg border border-slate-200 bg-white p-1"
-                          />
-                        </label>
+
+                      <div className="grid gap-4 sm:grid-cols-3">
+                        <div className="sm:col-span-2">
+                          <label className="block text-xs font-medium text-slate-700">
+                            Brand Name
+                          </label>
+                          <div className="mt-1.5 flex items-center gap-2">
+                            {brandKit.logoUrl && (
+                              <img
+                                src={brandKit.logoUrl}
+                                alt={brandKit.brandName}
+                                className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 bg-slate-50 object-contain p-1"
+                              />
+                            )}
+                            <input
+                              type="text"
+                              value={brandKit.brandName}
+                              onChange={(e) =>
+                                setBrandKit((b) => ({ ...b, brandName: e.target.value }))
+                              }
+                              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-900 outline-none focus:border-[#102D69]"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-end gap-3">
+                          <label className="flex flex-1 flex-col text-xs font-medium text-slate-700">
+                            <span>Primary</span>
+                            <input
+                              type="color"
+                              value={brandKit.primaryColor}
+                              onChange={(e) =>
+                                setBrandKit((b) => ({ ...b, primaryColor: e.target.value }))
+                              }
+                              className="mt-1.5 h-10 w-full cursor-pointer rounded-lg border border-slate-200 bg-white p-1"
+                            />
+                          </label>
+                          <label className="flex flex-1 flex-col text-xs font-medium text-slate-700">
+                            <span>Accent</span>
+                            <input
+                              type="color"
+                              value={brandKit.accentColor}
+                              onChange={(e) =>
+                                setBrandKit((b) => ({ ...b, accentColor: e.target.value }))
+                              }
+                              className="mt-1.5 h-10 w-full cursor-pointer rounded-lg border border-slate-200 bg-white p-1"
+                            />
+                          </label>
+                        </div>
                       </div>
                     </div>
 
@@ -1533,14 +2135,14 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       <div className="border-t border-slate-100 pt-4">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-medium text-slate-700">
-                            Attach Brand Files ({attachedAssetIds.length} selected)
+                            Attached Brand & B-Roll Files ({attachedAssetIds.length} selected)
                           </span>
                           <button
                             type="button"
                             onClick={() => setSection('files')}
                             className="text-xs font-medium text-[#102D69] hover:underline"
                           >
-                            Upload more
+                            Open B-Roll & Brand Hub
                           </button>
                         </div>
                         <div className="mt-2.5 flex flex-wrap gap-2">
@@ -1592,20 +2194,24 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       <div className="rounded-2xl border border-slate-200 bg-white p-6">
                         <p className="text-xs font-medium text-[#9A7B1C]">How it works</p>
                         <h3 className="mt-1 font-display text-lg font-bold text-slate-900">
-                          You approve every creative step
+                          7-Sub-Agent B-Roll Montage Pipeline
                         </h3>
                         <ol className="mt-4 space-y-3 text-xs leading-relaxed text-slate-600">
                           <li>
-                            <strong className="text-slate-900">1. Creative Plan:</strong> Review the
-                            narrative angle, pacing, and estimated production cost before building.
+                            <strong className="text-slate-900">1. Brand Doc Auto-Sync:</strong> Drop
+                            any brand guideline PDF, markdown doc, or logo to sync your exact hex
+                            palette, fonts, and watermark.
                           </li>
                           <li>
-                            <strong className="text-slate-900">2. Storyboard & Script:</strong> Inspect
-                            every scene, on-screen headline, and voiceover line.
+                            <strong className="text-slate-900">2. Storyboard & B-Roll Plan:</strong>{' '}
+                            Inspect every scene, kinetic headline, and 4-source B-roll montage cue.
                           </li>
                           <li>
-                            <strong className="text-slate-900">3. Studio Cut:</strong> Play with real
-                            human voiceover, music, instant look changes, and single-scene edits.
+                            <strong className="text-slate-900">
+                              3. Live Cut & H.264 MP4 Render:
+                            </strong>{' '}
+                            Play with real moving B-roll sub-cuts, studio narration, 1-click
+                            “Sharper cuts” pacing feedback, and in-app H.264 .mp4 rendering.
                           </li>
                         </ol>
                       </div>
@@ -1629,8 +2235,12 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                           </p>
                           <div className="mt-4 rounded-xl bg-[#FAFBFD] p-3.5 text-xs">
                             <p className="font-medium text-slate-800">Audience & Emotional Arc</p>
-                            <p className="mt-1 text-slate-600">{pal.semanticAnalysis.audiencePersona}</p>
-                            <p className="mt-1 text-slate-500">{pal.semanticAnalysis.emotionalArc}</p>
+                            <p className="mt-1 text-slate-600">
+                              {pal.semanticAnalysis.audiencePersona}
+                            </p>
+                            <p className="mt-1 text-slate-500">
+                              {pal.semanticAnalysis.emotionalArc}
+                            </p>
                           </div>
 
                           {!preProduction && (
@@ -1650,7 +2260,8 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         {preProduction && (
                           <div className="rounded-2xl border border-slate-200 bg-white p-6">
                             <span className="text-xs font-semibold text-[#9A7B1C]">
-                              Step 2 · Storyboard & Script ({preProduction.storyboard.length} Scenes)
+                              Step 2 · Storyboard & Script ({preProduction.storyboard.length}{' '}
+                              Scenes)
                             </span>
                             <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
                               {preProduction.videoTreatment.logline}
@@ -1670,7 +2281,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                                       {sc.durationSec}s
                                     </span>
                                   </div>
-                                  <p className="mt-0.5 text-xs text-slate-600">“{sc.onScreenText}”</p>
+                                  <p className="mt-0.5 text-xs text-slate-600">
+                                    “{sc.onScreenText}”
+                                  </p>
                                 </div>
                               ))}
                             </div>
@@ -1682,7 +2295,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                               className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#102D69] px-4 text-sm font-semibold text-white hover:bg-[#091A3E] disabled:opacity-60"
                             >
                               <Film className="h-4 w-4 text-[#D4AF37]" />
-                              <span>Build Live Video Cut</span>
+                              <span>Build Live B-Roll Montage Cut</span>
                             </button>
                           </div>
                         )}
@@ -1694,16 +2307,117 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                 /* ==================== LIVE STUDIO CUT WORKSPACE ==================== */
                 <div className="space-y-6">
                   <div className="grid gap-6 lg:grid-cols-12">
-                    {/* Left 8 Cols: Live Interactive Video Player + Conversational Scene Edit */}
+                    {/* Left 8 Cols: Live Interactive Video Player + Pacing Feedback + Conversational Scene Edit */}
                     <div className="space-y-4 lg:col-span-8">
                       <VideoPreviewPlayer
                         timeline={timeline}
+                        projectId={activeProjectId || 'monarch-cut'}
                         hyperframesHtml={compiled?.hyperframesHtml}
                         voiceoverClips={voiceoverClips}
                         musicPreset={selectedMusic}
                         activeSceneId={activeSceneId}
                         onSelectScene={setActiveSceneId}
                       />
+
+                      {/* Self-Improving Cinema Style Blueprint & Pacing Feedback Bar */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                        <div className="flex items-center gap-2 text-xs">
+                          <Scissors className="h-3.5 w-3.5 text-[#102D69]" />
+                          <span className="font-semibold text-slate-900">
+                            Style:{' '}
+                            {activeStyleBlueprint?.name || 'Rapid Hardware & Product Drop'}
+                          </span>
+                          <span className="font-mono text-[11px] text-slate-500">
+                            · {getBlueprintAvgCutSec(activeStyleBlueprint)}s B-roll sub-cuts
+                          </span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={Boolean(busyStage)}
+                            onClick={() => void handleStyleFeedback('sharper')}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-[#FAFBFD] px-3 text-xs font-semibold text-[#102D69] hover:bg-slate-100 whitespace-nowrap shrink-0"
+                          >
+                            <Zap className="h-3.5 w-3.5 text-[#9A7B1C]" />
+                            <span>Sharper Cuts</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(busyStage)}
+                            onClick={() => void handleStyleFeedback('liked')}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-[#FAFBFD] px-3 text-xs font-medium text-slate-700 hover:bg-slate-100 whitespace-nowrap shrink-0"
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5 text-emerald-600" />
+                            <span>Love This Pacing</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={Boolean(busyStage)}
+                            onClick={() => void handleStyleFeedback('slower')}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-[#FAFBFD] px-3 text-xs font-medium text-slate-700 hover:bg-slate-100 whitespace-nowrap shrink-0"
+                          >
+                            <span>More Cinematic</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowStyleJsonDrawer((prev) => !prev)}
+                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-mono text-slate-600 hover:bg-slate-50 whitespace-nowrap shrink-0"
+                          >
+                            <Code2 className="h-3.5 w-3.5" />
+                            <span>Style JSON</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Optional Style Blueprint JSON Inspector + Reverse-Engineer Generator */}
+                      {showStyleJsonDrawer && activeStyleBlueprint && (
+                        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-xs font-bold text-slate-900">
+                                Reusable Cinema Style Blueprint JSON — {activeStyleBlueprint.name}
+                              </p>
+                              <p className="text-[11px] text-slate-500">
+                                {activeStyleBlueprint.description} · Used{' '}
+                                {activeStyleBlueprint.usageCount} times
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setShowStyleJsonDrawer(false)}
+                              className="text-xs text-slate-500 hover:text-slate-900"
+                            >
+                              Close
+                            </button>
+                          </div>
+
+                          <form
+                            onSubmit={handleExtractStyleBlueprint}
+                            className="flex flex-col gap-2 sm:flex-row"
+                          >
+                            <input
+                              type="text"
+                              value={newStylePrompt}
+                              onChange={(e) => setNewStylePrompt(e.target.value)}
+                              placeholder="Reverse-engineer a new style (e.g. Apple Keynote 1.4s snap cuts with high-contrast slate plates)..."
+                              className="h-9 flex-1 rounded-lg border border-slate-200 bg-[#FAFBFD] px-3 text-xs text-slate-900 outline-none focus:border-[#102D69]"
+                            />
+                            <button
+                              type="submit"
+                              disabled={Boolean(busyStage) || !newStylePrompt.trim()}
+                              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[#102D69] px-3.5 text-xs font-semibold text-white hover:bg-[#091A3E] disabled:opacity-50 whitespace-nowrap shrink-0"
+                            >
+                              <Sparkles className="h-3.5 w-3.5 text-[#D4AF37]" />
+                              <span>Generate Style Blueprint</span>
+                            </button>
+                          </form>
+
+                          <pre className="max-h-48 overflow-auto rounded-xl bg-[#09142B] p-3 font-mono text-[11px] text-slate-200">
+                            {JSON.stringify(activeStyleBlueprint, null, 2)}
+                          </pre>
+                        </div>
+                      )}
 
                       {/* Plain-English Single-Scene Edit Bar */}
                       <form
@@ -1743,7 +2457,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       </form>
                     </div>
 
-                    {/* Right 4 Cols: Direct Voice, Music, Motion & Look Controls */}
+                    {/* Right 4 Cols: Direct Voice, Blueprint, Music, Motion, Look & Brand Auto-Sync */}
                     <div className="space-y-4 lg:col-span-4">
                       {/* Voiceover Studio Card */}
                       <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -1777,9 +2491,64 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         >
                           <Volume2 className="h-3.5 w-3.5 text-[#D4AF37]" />
                           <span>
-                            {voiceoverClips.length > 0 ? 'Re-Record Voiceover' : 'Generate Studio Voiceover'}
+                            {voiceoverClips.length > 0
+                              ? 'Re-Record Voiceover'
+                              : 'Generate Studio Voiceover'}
                           </span>
                         </button>
+                      </div>
+
+                      {/* Cinema Style Blueprint & Quick Brand Upload Card */}
+                      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
+                        <div>
+                          <label className="flex items-center justify-between text-xs font-semibold text-slate-900">
+                            <span>Cinema Style Blueprint</span>
+                            <span className="font-mono text-[11px] text-[#9A7B1C]">
+                              {getBlueprintAvgCutSec(activeStyleBlueprint)}s cuts
+                            </span>
+                          </label>
+                          <select
+                            value={selectedStyleBlueprintId}
+                            onChange={(e) =>
+                              void handleApplyMediaStyle({ styleBlueprintId: e.target.value })
+                            }
+                            className="mt-2 h-9 w-full rounded-lg border border-slate-200 bg-[#FAFBFD] px-2.5 text-xs font-medium text-slate-800 outline-none focus:border-[#102D69]"
+                          >
+                            {styleBlueprints.map((bp) => (
+                              <option key={bp.id} value={bp.id}>
+                                {bp.name} ({getBlueprintAvgCutSec(bp)}s)
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="flex items-center justify-between border-t border-slate-100 pt-3">
+                          <div className="flex items-center gap-2">
+                            {brandKit.logoUrl ? (
+                              <img
+                                src={brandKit.logoUrl}
+                                alt={brandKit.brandName}
+                                className="h-7 w-7 rounded-md border border-slate-200 object-contain p-0.5"
+                              />
+                            ) : (
+                              <span
+                                className="h-5 w-5 rounded-md border border-slate-300"
+                                style={{ backgroundColor: brandKit.primaryColor }}
+                              />
+                            )}
+                            <span className="text-xs font-medium text-slate-700">
+                              {brandKit.brandName}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => quickBrandInputRef.current?.click()}
+                            className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-[#FAFBFD] px-2.5 text-[11px] font-semibold text-[#102D69] hover:bg-slate-100"
+                          >
+                            <Upload className="h-3 w-3" />
+                            <span>Sync Brand Doc / Logo</span>
+                          </button>
+                        </div>
                       </div>
 
                       {/* Music & Motion & Look Card */}
@@ -1818,7 +2587,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                               <button
                                 key={m.id}
                                 type="button"
-                                onClick={() => void handleApplyMediaStyle({ animationPreset: m.id })}
+                                onClick={() =>
+                                  void handleApplyMediaStyle({ animationPreset: m.id })
+                                }
                                 className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
                                   selectedMotion === m.id
                                     ? 'border-[#102D69] bg-[#EEF3FA] text-[#102D69]'
@@ -1842,7 +2613,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                               <button
                                 key={look.id}
                                 type="button"
-                                onClick={() => void handleApplyMediaStyle({ videoPreset: look.id })}
+                                onClick={() =>
+                                  void handleApplyMediaStyle({ videoPreset: look.id })
+                                }
                                 className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors ${
                                   selectedLook === look.id
                                     ? 'border-[#102D69] bg-[#EEF3FA] text-[#102D69]'
@@ -1855,7 +2628,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                                     background: `linear-gradient(135deg, ${look.swatch[0]} 50%, ${look.swatch[1]} 50%)`,
                                   }}
                                 />
-                                <span className="truncate text-[11px] font-semibold">{look.label}</span>
+                                <span className="truncate text-[11px] font-semibold">
+                                  {look.label}
+                                </span>
                               </button>
                             ))}
                           </div>
@@ -1864,13 +2639,14 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                     </div>
                   </div>
 
-                  {/* Production Details Tabs (Storyboard, Script, Treatment, Export) */}
+                  {/* Production Details Tabs (Storyboard, B-Roll Sub-Cuts, Script, Treatment, Export) */}
                   <div className="rounded-2xl border border-slate-200 bg-white p-5">
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
                       <div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1">
                         {(
                           [
                             { id: 'storyboard', label: 'Storyboard' },
+                            { id: 'broll', label: 'B-Roll Montage Track' },
                             { id: 'script', label: 'Script & Cues' },
                             { id: 'treatment', label: 'Creative Treatment' },
                             { id: 'export', label: 'Export & Code' },
@@ -1891,36 +2667,113 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         ))}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={startFreshVideo}
-                        className="text-xs font-medium text-slate-500 hover:text-[#102D69]"
-                      >
-                        Start another video
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setSection('files')}
+                          className="text-xs font-semibold text-[#102D69] hover:underline"
+                        >
+                          Browse Open Media B-Roll Hub
+                        </button>
+                        <button
+                          type="button"
+                          onClick={startFreshVideo}
+                          className="text-xs font-medium text-slate-500 hover:text-[#102D69]"
+                        >
+                          Start another video
+                        </button>
+                      </div>
                     </div>
 
                     {detailTab === 'storyboard' && preProduction && (
                       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                        {preProduction.storyboard.map((sc) => (
-                          <button
-                            key={sc.sceneId}
-                            type="button"
-                            onClick={() => setActiveSceneId(sc.sceneId)}
-                            className={`rounded-xl border p-4 text-left transition-colors ${
-                              activeSceneId === sc.sceneId
-                                ? 'border-[#102D69] bg-[#EEF3FA]/60'
-                                : 'border-slate-200 bg-[#FAFBFD] hover:bg-white'
-                            }`}
+                        {preProduction.storyboard.map((sc) => {
+                          const timelineScene = timeline.scenes.find((s) => s.id === sc.sceneId);
+                          const shotCount = timelineScene?.brollShots?.length || 0;
+                          return (
+                            <button
+                              key={sc.sceneId}
+                              type="button"
+                              onClick={() => setActiveSceneId(sc.sceneId)}
+                              className={`rounded-xl border p-4 text-left transition-colors ${
+                                activeSceneId === sc.sceneId
+                                  ? 'border-[#102D69] bg-[#EEF3FA]/60'
+                                  : 'border-slate-200 bg-[#FAFBFD] hover:bg-white'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between text-[11px] font-mono text-slate-500">
+                                <span>Scene {sc.sceneNumber}</span>
+                                <span>
+                                  {sc.durationSec}s · {shotCount} B-roll cuts
+                                </span>
+                              </div>
+                              <h4 className="mt-1.5 text-sm font-semibold text-slate-900">
+                                {sc.title}
+                              </h4>
+                              <p className="mt-1 text-xs font-medium text-[#102D69]">
+                                “{sc.onScreenText}”
+                              </p>
+                              <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                                {sc.visualFraming}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {detailTab === 'broll' && (
+                      <div className="mt-4 space-y-4">
+                        {timeline.scenes.map((scene, idx) => (
+                          <div
+                            key={scene.id}
+                            className="rounded-xl border border-slate-200 bg-[#FAFBFD] p-4"
                           >
-                            <div className="flex items-center justify-between text-[11px] font-mono text-slate-500">
-                              <span>Scene {sc.sceneNumber}</span>
-                              <span>{sc.durationSec}s</span>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <span className="font-mono text-xs font-semibold text-[#102D69]">
+                                  Scene {idx + 1} · {scene.title} ({scene.durationSec}s)
+                                </span>
+                                <p className="text-xs text-slate-600">
+                                  {scene.brollShots?.length || 0} montage sub-cuts active
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveSceneId(scene.id);
+                                  setSection('files');
+                                }}
+                                className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-[#102D69] hover:bg-slate-50"
+                              >
+                                <Film className="h-3.5 w-3.5" />
+                                <span>Swap B-Roll from Media Hub</span>
+                              </button>
                             </div>
-                            <h4 className="mt-1.5 text-sm font-semibold text-slate-900">{sc.title}</h4>
-                            <p className="mt-1 text-xs font-medium text-[#102D69]">“{sc.onScreenText}”</p>
-                            <p className="mt-2 text-xs leading-relaxed text-slate-600">{sc.visualFraming}</p>
-                          </button>
+                            <div className="mt-3 grid gap-2.5 sm:grid-cols-3">
+                              {(scene.brollShots || []).map((shot, sIdx) => (
+                                <div
+                                  key={shot.id}
+                                  className="rounded-lg border border-slate-200 bg-white p-3"
+                                >
+                                  <div className="flex items-center justify-between font-mono text-[10px] text-slate-500">
+                                    <span>
+                                      Shot {sIdx + 1} · {shot.source}
+                                    </span>
+                                    <span>
+                                      {shot.durationSec}s · {shot.kenBurns}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 truncate text-xs font-semibold text-slate-900">
+                                    {shot.title}
+                                  </p>
+                                  <p className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
+                                    {shot.clipUrl}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -1933,8 +2786,12 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                               {cue.timecode}
                             </div>
                             <div className="sm:col-span-6">
-                              <p className="text-xs font-semibold text-slate-900">{cue.kineticHeadline}</p>
-                              <p className="mt-1 text-xs leading-relaxed text-slate-700">“{cue.voiceover}”</p>
+                              <p className="text-xs font-semibold text-slate-900">
+                                {cue.kineticHeadline}
+                              </p>
+                              <p className="mt-1 text-xs leading-relaxed text-slate-700">
+                                “{cue.voiceover}”
+                              </p>
                             </div>
                             <div className="text-xs text-slate-500 sm:col-span-4">
                               <p>Music: {cue.musicCue}</p>
@@ -1960,7 +2817,9 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                           </p>
                         </div>
                         <div className="rounded-xl bg-[#FAFBFD] p-4">
-                          <p className="text-[11px] font-semibold text-[#9A7B1C]">Voice & Soundscape</p>
+                          <p className="text-[11px] font-semibold text-[#9A7B1C]">
+                            Voice & Soundscape
+                          </p>
                           <p className="mt-1 text-xs leading-relaxed text-slate-700">
                             {preProduction.videoTreatment.voiceoverDirection} —{' '}
                             {preProduction.videoTreatment.soundscapeAndMusic}
@@ -1999,9 +2858,17 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                                 .toLowerCase()
                                 .replace(/[^a-z0-9]+/g, '-');
                               if (codeTab === 'html') {
-                                downloadExportFile(`${slug}.html`, compiled.hyperframesHtml, 'text/html');
+                                downloadExportFile(
+                                  `${slug}.html`,
+                                  compiled.hyperframesHtml,
+                                  'text/html'
+                                );
                               } else if (codeTab === 'tsx') {
-                                downloadExportFile(`${slug}.tsx`, compiled.remotionTsx, 'text/plain');
+                                downloadExportFile(
+                                  `${slug}.tsx`,
+                                  compiled.remotionTsx,
+                                  'text/plain'
+                                );
                               } else {
                                 downloadExportFile(
                                   `${slug}.json`,
@@ -2031,23 +2898,35 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             </div>
           )}
 
-          {/* ==================== 3. CONTENT & FILES ==================== */}
+          {/* ==================== 3. CONTENT, BRAND DOCS & B-ROLL HUB ==================== */}
           {section === 'files' && (
-            <div className="space-y-6">
+            <div className="space-y-8">
+              {/* Brand Docs, Logos & Custom Video Upload Vault */}
               <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-6">
                 <div>
                   <h2 className="font-display text-lg font-bold text-slate-900">
-                    Upload Brand Assets & Media
+                    Upload Brand Docs, Logos & Custom B-Roll Clips
                   </h2>
                   <p className="mt-1 text-xs text-slate-600">
-                    Host your logos, product stills, voice tracks, and brand guidelines to attach directly to new videos.
+                    Drop a brand guideline (.pdf, .md, .txt, .json) or logo (.png, .svg, .jpg) to
+                    automatically extract your hex palette and watermark, or upload your own .mp4
+                    B-roll footage.
                   </p>
                 </div>
-                <div>
+                <div className="flex items-center gap-3">
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={autoSyncUploads}
+                      onChange={(e) => setAutoSyncUploads(e.target.checked)}
+                      className="rounded border-slate-300 text-[#102D69]"
+                    />
+                    <span>Auto-sync brand uploads</span>
+                  </label>
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*,audio/*,.pdf,.txt,.md,.json"
+                    accept="image/*,audio/*,video/mp4,video/webm,.pdf,.txt,.md,.json"
                     onChange={(e) => void handleFileSelected(e)}
                     className="hidden"
                   />
@@ -2057,113 +2936,280 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                     onClick={() => fileInputRef.current?.click()}
                     className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#102D69] px-4 text-xs font-semibold text-white hover:bg-[#091A3E] disabled:opacity-60"
                   >
-                    {busyStage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    <span>Upload File</span>
+                    {busyStage ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Upload className="h-4 w-4" />
+                    )}
+                    <span>Upload Brand File or Video</span>
                   </button>
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1 w-fit">
-                {(
-                  [
-                    { id: 'all', label: 'All Files' },
-                    { id: 'logo', label: 'Logos' },
-                    { id: 'image', label: 'Images' },
-                    { id: 'audio', label: 'Audio' },
-                    { id: 'document', label: 'Documents' },
-                  ] as const
-                ).map((cat) => (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    onClick={() => setAssetCategoryFilter(cat.id)}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                      assetCategoryFilter === cat.id
-                        ? 'bg-[#102D69] text-white'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
+              {/* Open-Source & Composio B-Roll Media Library Hub */}
+              <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-[#9A7B1C]">
+                      4-Source B-Roll & Audio Connector Hub
+                    </p>
+                    <h3 className="mt-0.5 font-display text-base font-bold text-slate-900">
+                      Open-Source & Composio Media Library (Pexels · Pixabay · Wikimedia · Coverr)
+                    </h3>
+                  </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {filteredAssets.map((asset) => {
-                  const isImage = asset.mimeType.startsWith('image/');
-                  const isAudio = asset.mimeType.startsWith('audio/');
-                  const isAttached = attachedAssetIds.includes(asset.id);
-
-                  return (
-                    <div
-                      key={asset.id}
-                      className="flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white"
+                  <form onSubmit={handleSearchOpenMedia} className="flex items-center gap-2">
+                    <div className="relative w-64">
+                      <Search className="pointer-events-none absolute top-2.5 left-3 h-3.5 w-3.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={mediaSearchQuery}
+                        onChange={(e) => setMediaSearchQuery(e.target.value)}
+                        placeholder="Search B-roll (e.g. lens, city, nature)..."
+                        className="h-9 w-full rounded-lg border border-slate-200 bg-[#FAFBFD] pr-3 pl-8 text-xs text-slate-900 outline-none focus:border-[#102D69]"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={searchingMedia}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#102D69] px-3.5 text-xs font-semibold text-white hover:bg-[#091A3E] disabled:opacity-60"
                     >
-                      <div>
-                        <div className="flex h-40 items-center justify-center overflow-hidden bg-slate-100">
-                          {isImage ? (
-                            <img
-                              src={asset.url}
-                              alt={asset.name}
-                              referrerPolicy="no-referrer"
+                      {searchingMedia ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Search className="h-3.5 w-3.5" />
+                      )}
+                      <span>Search Hub</span>
+                    </button>
+                  </form>
+                </div>
+
+                {/* Source Filter Bar */}
+                <div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1 w-fit">
+                  {[
+                    { id: 'all', label: 'All Sources' },
+                    { id: 'curated-hd', label: 'Curated Studio HD' },
+                    { id: 'pexels', label: 'Pexels (Composio)' },
+                    { id: 'pixabay', label: 'Pixabay' },
+                    { id: 'wikimedia', label: 'Wikimedia Commons CC0' },
+                    { id: 'coverr', label: 'Coverr Cinema' },
+                  ].map((src) => (
+                    <button
+                      key={src.id}
+                      type="button"
+                      onClick={() => {
+                        setMediaSourceFilter(src.id);
+                      }}
+                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                        mediaSourceFilter === src.id
+                          ? 'bg-white text-[#102D69] shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {src.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {mediaLibraryItems
+                    .filter((item) =>
+                      mediaSourceFilter === 'all' ? true : item.platform === mediaSourceFilter
+                    )
+                    .map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-[#FAFBFD]"
+                      >
+                        <div>
+                          <div className="relative aspect-video w-full overflow-hidden bg-[#09142B]">
+                            <video
+                              src={item.url}
+                              muted
+                              loop
+                              playsInline
+                              onMouseEnter={(e) => void e.currentTarget.play().catch(() => {})}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.pause();
+                                e.currentTarget.currentTime = 0;
+                              }}
                               className="h-full w-full object-cover"
                             />
-                          ) : isAudio ? (
-                            <div className="flex flex-col items-center gap-2 px-4">
-                              <FileAudio className="h-8 w-8 text-[#102D69]" />
-                              <audio controls src={asset.url} className="h-8 w-56" />
+                            <div className="pointer-events-none absolute top-2 left-2 rounded-md bg-[#09142B]/80 px-2 py-0.5 font-mono text-[10px] text-white">
+                              {item.platform} · {item.durationSec || 6}s
                             </div>
-                          ) : (
-                            <FileText className="h-8 w-8 text-slate-400" />
-                          )}
+                          </div>
+                          <div className="p-3.5">
+                            <p className="truncate text-xs font-semibold text-slate-900">
+                              {item.title}
+                            </p>
+                            <p className="mt-1 font-mono text-[11px] text-slate-500">
+                              {item.license} {item.author ? `· ${item.author}` : ''}
+                            </p>
+                          </div>
                         </div>
-                        <div className="p-4">
-                          <p className="truncate text-sm font-semibold text-slate-900">{asset.name}</p>
-                          <p className="mt-1 font-mono text-[11px] text-slate-500">
-                            {asset.category} · {formatFileSize(asset.sizeBytes)}
-                          </p>
-                        </div>
-                      </div>
 
-                      <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!isAttached) {
-                              setAttachedAssetIds((prev) => [...prev, asset.id]);
-                            }
-                            setSection('create');
-                            showToast(`Attached "${asset.name}" to your video brief.`);
-                          }}
-                          className="text-xs font-semibold text-[#102D69] hover:underline"
-                        >
-                          {isAttached ? 'Attached to brief' : 'Use in video'}
-                        </button>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center justify-between border-t border-slate-200/80 bg-white px-3.5 py-2.5">
+                          <span className="font-mono text-[10px] text-slate-400">
+                            Hover video to preview
+                          </span>
                           <button
                             type="button"
-                            onClick={() => {
-                              void navigator.clipboard.writeText(`${window.location.origin}${asset.url}`);
-                              showToast('File link copied.');
-                            }}
-                            aria-label="Copy link"
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            onClick={() => void handleUseMediaClipInScene(item)}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-[#102D69] hover:underline"
                           >
-                            <Copy className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleDeleteAsset(asset.id)}
-                            aria-label="Delete file"
-                            className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Plus className="h-3.5 w-3.5" />
+                            <span>{timeline ? 'Use in Active Scene' : 'Add to Brief'}</span>
                           </button>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    ))}
+                </div>
+              </div>
+
+              {/* Uploaded Brand Assets Vault */}
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-display text-base font-bold text-slate-900">
+                    Your Uploaded Brand Files ({assets.length})
+                  </h3>
+                  <div className="flex flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-1">
+                    {(
+                      [
+                        { id: 'all', label: 'All Files' },
+                        { id: 'logo', label: 'Logos' },
+                        { id: 'video', label: 'B-Roll Videos' },
+                        { id: 'image', label: 'Images' },
+                        { id: 'document', label: 'Brand Docs' },
+                        { id: 'audio', label: 'Audio' },
+                      ] as const
+                    ).map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setAssetCategoryFilter(cat.id)}
+                        className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                          assetCategoryFilter === cat.id
+                            ? 'bg-[#102D69] text-white'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {filteredAssets.map((asset) => {
+                    const isImage = asset.mimeType.startsWith('image/');
+                    const isAudio = asset.mimeType.startsWith('audio/');
+                    const isVideo = asset.mimeType.startsWith('video/');
+                    const isAttached = attachedAssetIds.includes(asset.id);
+
+                    return (
+                      <div
+                        key={asset.id}
+                        className="flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white"
+                      >
+                        <div>
+                          <div className="flex h-40 items-center justify-center overflow-hidden bg-slate-100">
+                            {isImage ? (
+                              <img
+                                src={asset.url}
+                                alt={asset.name}
+                                referrerPolicy="no-referrer"
+                                className="h-full w-full object-cover"
+                              />
+                            ) : isVideo ? (
+                              <video
+                                src={asset.url}
+                                muted
+                                loop
+                                controls
+                                className="h-full w-full object-cover"
+                              />
+                            ) : isAudio ? (
+                              <div className="flex flex-col items-center gap-2 px-4">
+                                <FileAudio className="h-8 w-8 text-[#102D69]" />
+                                <audio controls src={asset.url} className="h-8 w-56" />
+                              </div>
+                            ) : (
+                              <FileText className="h-8 w-8 text-slate-400" />
+                            )}
+                          </div>
+                          <div className="p-4">
+                            <p className="truncate text-sm font-semibold text-slate-900">
+                              {asset.name}
+                            </p>
+                            <p className="mt-1 font-mono text-[11px] text-slate-500">
+                              {asset.category} · {formatFileSize(asset.sizeBytes)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5">
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!isAttached) {
+                                  setAttachedAssetIds((prev) => [...prev, asset.id]);
+                                }
+                                setSection('create');
+                                showToast(`Attached "${asset.name}" to your video brief.`);
+                              }}
+                              className="text-xs font-semibold text-[#102D69] hover:underline"
+                            >
+                              {isAttached ? 'Attached to brief' : 'Use in video'}
+                            </button>
+                            {isImage && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void applyExtractedBrandKit(
+                                    {
+                                      logoUrl: asset.url,
+                                      logoStyle: 'monarch-crest',
+                                      sourceDocName: asset.name,
+                                    },
+                                    `Synced "${asset.name}" as your active brand logo watermark.`
+                                  )
+                                }
+                                className="text-xs font-medium text-[#9A7B1C] hover:underline"
+                              >
+                                Set as Logo
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void navigator.clipboard.writeText(
+                                  `${window.location.origin}${asset.url}`
+                                );
+                                showToast('File link copied.');
+                              }}
+                              aria-label="Copy link"
+                              className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteAsset(asset.id)}
+                              aria-label="Delete file"
+                              className="rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
@@ -2175,7 +3221,8 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               <div className="rounded-2xl border border-slate-200 bg-white p-6">
                 <h2 className="font-display text-lg font-bold text-slate-900">Studio Voices</h2>
                 <p className="mt-1 text-xs text-slate-600">
-                  Audition natural studio voices and set your default narrator for new video projects.
+                  Audition natural studio voices and set your default narrator for new video
+                  projects.
                 </p>
 
                 <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -2186,14 +3233,18 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       <div
                         key={v.id}
                         className={`flex flex-col justify-between rounded-xl border p-4 transition-colors ${
-                          isDefault ? 'border-[#102D69] bg-[#EEF3FA]/50' : 'border-slate-200 bg-[#FAFBFD]'
+                          isDefault
+                            ? 'border-[#102D69] bg-[#EEF3FA]/50'
+                            : 'border-slate-200 bg-[#FAFBFD]'
                         }`}
                       >
                         <div>
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-sm font-semibold text-slate-900">{v.label}</span>
                             {isDefault && (
-                              <span className="text-[11px] font-semibold text-[#102D69]">Default</span>
+                              <span className="text-[11px] font-semibold text-[#102D69]">
+                                Default
+                              </span>
                             )}
                           </div>
                           <p className="mt-1 text-xs text-slate-600">{v.tone}</p>
@@ -2231,14 +3282,15 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                 </div>
               </div>
 
-              {/* Music Scores & Default Style */}
+              {/* Music Scores & Creative AI Engine Readiness */}
               <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-2xl border border-slate-200 bg-white p-6">
                   <h3 className="font-display text-base font-bold text-slate-900">
                     Original Underscore Library
                   </h3>
                   <p className="mt-1 text-xs text-slate-600">
-                    Royalty-free adaptive music beds that automatically duck cleanly beneath voiceover.
+                    Royalty-free adaptive music beds that automatically duck cleanly beneath
+                    voiceover.
                   </p>
                   <div className="mt-4 space-y-2.5">
                     {MUSIC_OPTIONS.map((m) => (
@@ -2265,17 +3317,21 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                   </div>
                 </div>
 
-                {/* Creative AI Engine Readiness (Read-only, zero browser API key inputs) */}
+                {/* Creative AI Engine Readiness */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-6">
                   <h3 className="font-display text-base font-bold text-slate-900">
                     Creative AI Engines
                   </h3>
                   <p className="mt-1 text-xs text-slate-600">
-                    Managed securely on your server or Vercel project environment so credentials never touch the browser.
+                    Managed securely on your server or Vercel project environment so credentials
+                    never touch the browser.
                   </p>
                   <div className="mt-4 divide-y divide-slate-100">
                     {(bootstrap?.modelAdapters || []).map((adapter) => (
-                      <div key={adapter.id} className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                      <div
+                        key={adapter.id}
+                        className="flex items-start justify-between gap-3 py-3 first:pt-0 last:pb-0"
+                      >
                         <div>
                           <p className="text-xs font-semibold text-slate-900">{adapter.provider}</p>
                           <p className="mt-0.5 text-[11px] text-slate-500">{adapter.role}</p>
@@ -2300,10 +3356,11 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             <div className="space-y-6">
               <div className="rounded-2xl border border-slate-200 bg-white p-6">
                 <h2 className="font-display text-lg font-bold text-slate-900">
-                  Publishing Channels & Connected Tools
+                  Publishing Channels, Composio Media & Connected Tools
                 </h2>
                 <p className="mt-1 text-xs text-slate-600">
-                  Connect social channels, brand storage, or external workflow tools to publish finished videos faster.
+                  Connect Pexels, Pixabay, Wikimedia Commons, Openverse audio, YouTube, Instagram
+                  Reels, TikTok, or Google Drive to streamline your video pipeline.
                 </p>
               </div>
 
@@ -2373,17 +3430,240 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
               </div>
             </div>
           )}
+
+          {/* ==================== 6. BILLING & PRODUCTION LAUNCH GUIDE ==================== */}
+          {section === 'billing' && (
+            <div className="space-y-8">
+              {/* Current Plan & Stripe Subscription Tiers */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-medium text-[#9A7B1C]">Stripe Subscription Billing</p>
+                    <h2 className="mt-0.5 font-display text-lg font-bold text-slate-900">
+                      Current Plan:{' '}
+                      {(billingState?.planTier || 'starter').toUpperCase()} (
+                      {billingState?.status || 'active'})
+                    </h2>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Upgrade with Stripe Checkout or manage your invoices and payment method via
+                      the Stripe Customer Portal.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={Boolean(busyStage)}
+                    onClick={() => void handleStripePortal()}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-[#FAFBFD] px-3.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    <CreditCard className="h-3.5 w-3.5 text-[#102D69]" />
+                    <span>Manage Billing Portal</span>
+                  </button>
+                </div>
+
+                <div className="mt-6 grid gap-5 md:grid-cols-3">
+                  {(
+                    [
+                      {
+                        id: 'starter' as SubscriptionPlanId,
+                        name: 'Starter Free',
+                        price: '$0 / mo',
+                        desc: '3 MP4/WebM exports per month, 5 studio voices, curated B-roll library.',
+                      },
+                      {
+                        id: 'creator' as SubscriptionPlanId,
+                        name: 'Creator Pro',
+                        price: '$29 / mo',
+                        desc: 'Unlimited H.264 MP4 renders, 10 Brand Doc auto-sync kits, custom JSON style blueprints.',
+                      },
+                      {
+                        id: 'studio' as SubscriptionPlanId,
+                        name: 'Studio Unlimited',
+                        price: '$99 / mo',
+                        desc: 'Up to 10 team seats, Composio social & Pexels connectors, 4K Remotion TSX + API access.',
+                      },
+                    ] as const
+                  ).map((tier) => {
+                    const isCurrent = (billingState?.planTier || 'starter') === tier.id;
+                    return (
+                      <div
+                        key={tier.id}
+                        className={`flex flex-col justify-between rounded-xl border p-5 ${
+                          isCurrent
+                            ? 'border-2 border-[#102D69] bg-[#EEF3FA]/40'
+                            : 'border-slate-200 bg-[#FAFBFD]'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-display text-base font-bold text-slate-900">
+                              {tier.name}
+                            </h3>
+                            {isCurrent && (
+                              <span className="text-[11px] font-semibold text-[#102D69]">
+                                Active Plan
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-2 font-display text-2xl font-bold text-slate-900 tabular-nums">
+                            {tier.price}
+                          </p>
+                          <p className="mt-2 text-xs leading-relaxed text-slate-600">{tier.desc}</p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={isCurrent || Boolean(busyStage)}
+                          onClick={() => void handleStripeCheckout(tier.id)}
+                          className={`mt-5 inline-flex h-9 w-full items-center justify-center rounded-lg text-xs font-semibold transition-colors ${
+                            isCurrent
+                              ? 'border border-slate-200 bg-white text-slate-400'
+                              : 'bg-[#102D69] text-white hover:bg-[#091A3E]'
+                          }`}
+                        >
+                          {isCurrent ? 'Current Plan' : `Switch to ${tier.name}`}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Production Walkthrough: Vercel + GitHub + Firebase Auth + Stripe */}
+              <div className="rounded-2xl border border-slate-200 bg-white p-6">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-[#102D69]" />
+                  <h2 className="font-display text-lg font-bold text-slate-900">
+                    Production Setup Walkthrough — Vercel + GitHub + Firebase Auth + Stripe
+                  </h2>
+                </div>
+                <p className="mt-1 text-xs text-slate-600">
+                  Follow these 4 exact steps to enable real user sign-up/sign-in, cloud persistence,
+                  and live Stripe payments on your Vercel deployment connected to GitHub.
+                </p>
+
+                <div className="mt-6 grid gap-5 lg:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-[#FAFBFD] p-5">
+                    <p className="font-mono text-xs font-bold text-[#102D69]">
+                      STEP 01 · FIREBASE AUTH PROVIDERS
+                    </p>
+                    <h3 className="mt-1 font-display text-sm font-bold text-slate-900">
+                      Enable Email/Password & Google Sign-In
+                    </h3>
+                    <ol className="mt-2.5 space-y-1.5 text-xs leading-relaxed text-slate-600">
+                      <li>
+                        1. Open the{' '}
+                        <a
+                          href="https://console.firebase.google.com/project/elite-rider-459015-b2/authentication/providers"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-semibold text-[#102D69] underline"
+                        >
+                          Firebase Console (elite-rider-459015-b2)
+                        </a>
+                        .
+                      </li>
+                      <li>
+                        2. Go to <strong>Authentication → Sign-in method</strong>.
+                      </li>
+                      <li>
+                        3. Enable <strong>Email/Password</strong> and <strong>Google</strong>{' '}
+                        (choose your support email and click Save).
+                      </li>
+                    </ol>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-[#FAFBFD] p-5">
+                    <p className="font-mono text-xs font-bold text-[#102D69]">
+                      STEP 02 · AUTHORIZE YOUR VERCEL DOMAIN
+                    </p>
+                    <h3 className="mt-1 font-display text-sm font-bold text-slate-900">
+                      Whitelist Your .vercel.app & Custom Domain
+                    </h3>
+                    <ol className="mt-2.5 space-y-1.5 text-xs leading-relaxed text-slate-600">
+                      <li>
+                        1. In Firebase Console, go to{' '}
+                        <strong>Authentication → Settings → Authorized domains</strong>.
+                      </li>
+                      <li>
+                        2. Click <strong>Add domain</strong> and enter your Vercel production domain
+                        (e.g.{' '}
+                        <code className="font-mono text-[#102D69]">monarch-video.vercel.app</code>
+                        ).
+                      </li>
+                      <li>
+                        3. This immediately enables Google OAuth popups and password reset links on
+                        production.
+                      </li>
+                    </ol>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-[#FAFBFD] p-5">
+                    <p className="font-mono text-xs font-bold text-[#102D69]">
+                      STEP 03 · VERCEL ENVIRONMENT VARIABLES
+                    </p>
+                    <h3 className="mt-1 font-display text-sm font-bold text-slate-900">
+                      Add Server Keys in Vercel Project Settings
+                    </h3>
+                    <p className="mt-1.5 text-xs text-slate-600">
+                      In Vercel Dashboard → <strong>Settings → Environment Variables</strong>, add:
+                    </p>
+                    <pre className="mt-2.5 overflow-x-auto rounded-lg bg-[#09142B] p-3 font-mono text-[11px] text-slate-200">
+{`GEMINI_API_KEY=your_gemini_api_key
+STRIPE_SECRET_KEY=sk_live_or_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_CREATOR_MONTHLY=price_...
+STRIPE_PRICE_STUDIO_MONTHLY=price_...
+PEXELS_API_KEY=optional_for_live_pexels
+PIXABAY_API_KEY=optional_for_live_pixabay`}
+                    </pre>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-200 bg-[#FAFBFD] p-5">
+                    <p className="font-mono text-xs font-bold text-[#102D69]">
+                      STEP 04 · STRIPE WEBHOOK & GITHUB PUSH
+                    </p>
+                    <h3 className="mt-1 font-display text-sm font-bold text-slate-900">
+                      Connect Stripe Webhook to Your Vercel URL
+                    </h3>
+                    <ol className="mt-2.5 space-y-1.5 text-xs leading-relaxed text-slate-600">
+                      <li>
+                        1. In Stripe Dashboard → <strong>Developers → Webhooks</strong>, click{' '}
+                        <strong>Add endpoint</strong>.
+                      </li>
+                      <li>
+                        2. Set Endpoint URL to{' '}
+                        <code className="font-mono text-[#102D69]">
+                          https://your-app.vercel.app/api/billing/webhook
+                        </code>
+                        .
+                      </li>
+                      <li>
+                        3. Select events:{' '}
+                        <code className="font-mono">checkout.session.completed</code> and{' '}
+                        <code className="font-mono">customer.subscription.deleted</code>.
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </main>
       </div>
 
-      {/* Quiet Developer Diagnostics Drawer / Modal (Accessible from Sidebar Footer only) */}
+      {/* Master Agent Soul, Covenant & 7-Sub-Agent Architecture Modal */}
       {diagnosticsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-2xs">
-          <div className="relative flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-[#FAFBFD] shadow-2xl">
+          <div className="relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-[#FAFBFD] shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
-              <span className="font-display text-sm font-bold text-[#102D69]">
-                Monarch System Diagnostics
-              </span>
+              <div>
+                <span className="font-display text-sm font-bold text-[#102D69]">
+                  Monarch Master Agent Soul, Covenant & 7-Sub-Agent Architecture
+                </span>
+                <p className="text-[11px] text-slate-500">
+                  SOUL.md · COVENANT.md · 7 Sub-Agents · 16 ADK/MCP Tools · 12-Point Infallibility
+                  Audit
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setDiagnosticsOpen(false)}
@@ -2395,6 +3675,41 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             </div>
             <div className="overflow-y-auto p-6">
               <AgentInspectorView />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Loom Walkthrough Modal */}
+      {loomModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-2xs">
+          <div className="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+              <div>
+                <p className="font-display text-sm font-bold text-[#102D69]">
+                  Monarch Video Studio — Product Walkthrough
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  B-Roll Montage Engine · Brand Doc Auto-Sync · In-App H.264 MP4 Rendering
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLoomModalOpen(false)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                aria-label="Close walkthrough video"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="aspect-video w-full bg-[#09142B]">
+              <iframe
+                src={LOOM_EMBED_URL}
+                title="Monarch Video Studio Loom Walkthrough"
+                frameBorder="0"
+                allowFullScreen
+                className="h-full w-full"
+              />
             </div>
           </div>
         </div>

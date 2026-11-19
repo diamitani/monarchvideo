@@ -59,6 +59,87 @@ export interface BrandKit {
   surfaceColor: string;
   fontPairing: string;
   logoStyle: 'monarch-crest' | 'minimal-wordmark' | 'monogram-seal';
+  logoUrl?: string;
+  logoPlacement?: 'watermark-and-outro' | 'outro-only' | 'all-scenes';
+  brandVoice?: string;
+  sourceDocName?: string;
+  autoSyncEnabled?: boolean;
+}
+
+export type BRollSourcePlatform =
+  | 'curated-hd'
+  | 'user-upload'
+  | 'pexels'
+  | 'pixabay'
+  | 'wikimedia'
+  | 'openverse'
+  | 'coverr'
+  | 'programmatic';
+
+export type MontageCutTransition = 'hard-cut' | 'whip-pan' | 'gold-wipe' | 'zoom-punch';
+export type MontageKenBurns = 'dolly-in' | 'pan-left' | 'pan-right' | 'pull-back';
+
+export interface BRollShot {
+  id: string;
+  clipUrl: string;
+  posterUrl?: string;
+  title: string;
+  source: BRollSourcePlatform;
+  startOffsetSec: number;
+  durationSec: number;
+  cutTransition: MontageCutTransition;
+  kenBurns: MontageKenBurns;
+  filterCss?: string;
+  author?: string;
+  license?: string;
+}
+
+export interface DesignStyleBlueprint {
+  id: string;
+  name: string;
+  archetype: string;
+  description: string;
+  shotCadenceSec: number[];
+  cutRhythm: 'rapid-montage' | 'kinetic-editorial' | 'measured-cinema';
+  transitionPack: MontageCutTransition[];
+  colorGrade: {
+    name: string;
+    cssFilter: string;
+    scrimCss: string;
+  };
+  typographyRules: {
+    headlineMaxWords: number;
+    placement: 'center' | 'lower-left' | 'upper-center';
+    lowerThirdStyle: string;
+  };
+  musicBpmRange: [number, number];
+  usageCount: number;
+  ratingScore: number;
+  learnedNotes: string[];
+}
+
+export interface OpenMediaLibraryItem {
+  id: string;
+  title: string;
+  platform: 'curated-hd' | 'pexels' | 'pixabay' | 'wikimedia' | 'openverse' | 'coverr' | 'user-upload';
+  mediaType: 'video' | 'audio' | 'image';
+  url: string;
+  previewUrl?: string;
+  durationSec?: number;
+  author?: string;
+  license: string;
+  tags: string[];
+}
+
+export interface SubscriptionBillingState {
+  planTier: 'starter' | 'creator' | 'studio';
+  stripeConfigured: boolean;
+  webhookConfigured: boolean;
+  status: 'active' | 'trialing' | 'free';
+  monthlyExportsLimit: number;
+  monthlyExportsUsed: number;
+  customerEmail?: string;
+  portalAvailable: boolean;
 }
 
 export interface PALInput {
@@ -71,6 +152,7 @@ export interface PALInput {
   routingMode: RoutingMode;
   referenceUrls?: string[];
   orgSizeOverThree?: boolean;
+  styleBlueprintId?: string;
 }
 
 export interface PALCostEstimate {
@@ -197,6 +279,7 @@ export interface TimelineScene {
     promptOrAsset: string;
   };
   transition: 'cross-dissolve' | 'wipe-gold' | 'cut-crisp' | 'zoom-settle';
+  brollShots?: BRollShot[];
 }
 
 export interface UniversalVideoTimeline {
@@ -215,6 +298,7 @@ export interface UniversalVideoTimeline {
   renderRuntime: 'hyperframes' | 'remotion';
   animationPreset?: AnimationPresetId;
   videoPreset?: OpenMontageVideoPresetId;
+  styleBlueprintId?: string;
   audioTracks: {
     voiceover: {
       voicePersona: string;
@@ -270,12 +354,14 @@ export interface VideoProject {
   runtime: RenderRuntime;
   routingMode: RoutingMode;
   brandKit: BrandKit;
+  styleBlueprintId?: string;
   mediaSelections?: StudioMediaSelections;
   attachedAssetIds?: string[];
   pal?: PALOutput;
   preProduction?: ArtisticPreProduction;
   timeline?: UniversalVideoTimeline;
   compiled?: CompiledTargets;
+  lastRenderedMp4Url?: string;
   editHistory: Array<{
     version: number;
     timestamp: string;
@@ -288,12 +374,13 @@ export interface VideoProject {
 export interface MediaAsset {
   id: string;
   name: string;
-  category: 'logo' | 'image' | 'audio' | 'document';
+  category: 'logo' | 'image' | 'video' | 'audio' | 'document';
   mimeType: string;
   sizeBytes: number;
   url: string;
   tags: string[];
   createdAt: string;
+  extractedBrandKit?: Partial<BrandKit>;
 }
 
 export interface WorkspaceIntegration {
@@ -386,4 +473,64 @@ export interface SixthAgentBlueprint {
   slug: string;
   mcpServers: string[];
   files: Record<string, string>;
+}
+
+export interface SubAgentSpecification {
+  id: string;
+  name: string;
+  role: string;
+  layer: string;
+  model: string;
+  systemInstruction: string;
+  tools: string[];
+  skills: string[];
+  workflowSteps: Array<{
+    step: number;
+    phase: string;
+    action: string;
+    verificationGate: string;
+  }>;
+  inputContract: string;
+  outputContract: string;
+}
+
+export interface AgentSkillSpecification {
+  id: string;
+  name: string;
+  purpose: string;
+  modulePath: string;
+  subAgentsUsing: string[];
+  toolsExposed: string[];
+  workflowSteps: string[];
+  infallibilityCheck: string;
+}
+
+export interface CanonicalReferenceLink {
+  id: string;
+  title: string;
+  category: 'repository' | 'engine' | 'protocol' | 'dataset' | 'media-hub' | 'deployment';
+  url: string;
+  license: string;
+  integrationRole: string;
+}
+
+export interface MonarchMasterManifest {
+  version: string;
+  repositoryBase: string;
+  loomWalkthroughUrl: string;
+  soulMd: string;
+  covenantMd: string;
+  masterOneSheeterMd: string;
+  systemInstructionsMd: string;
+  orchestrationWorkflowsMd: string;
+  referenceManifestMd: string;
+  subAgents: SubAgentSpecification[];
+  skills: AgentSkillSpecification[];
+  registeredTools: Array<{
+    name: string;
+    category: 'creative-direction' | 'broll-montage' | 'brand-intelligence' | 'audio-voice' | 'composio-mcp' | 'governance';
+    description: string;
+    subAgentOwner: string;
+  }>;
+  references: CanonicalReferenceLink[];
 }

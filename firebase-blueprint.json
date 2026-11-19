@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Monarch Video creator profile with isolated PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "email": { "type": "string", "format": "email", "minLength": 3, "maxLength": 254 },
+        "photoURL": { "type": "string", "maxLength": 1000 },
+        "defaultBrandName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "email", "createdAt", "updatedAt"]
+    },
+    "VideoProjectDoc": {
+      "title": "VideoProjectDoc",
+      "description": "User-owned video project including brief, storyboard, script, timeline, media selections, and publish status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "pal-ready", "preproduction-ready", "compiled", "published"]
+        },
+        "version": { "type": "number" },
+        "aspectRatio": { "type": "string", "enum": ["16:9", "9:16", "1:1"] },
+        "durationSec": { "type": "number" },
+        "runtime": {
+          "type": "string",
+          "enum": ["hyperframes", "remotion", "hybrid-veo-hyperframes"]
+        },
+        "routingMode": {
+          "type": "string",
+          "enum": ["managed-gateway", "byok-server"]
+        },
+        "brandKit": { "type": "object" },
+        "pal": { "type": "object" },
+        "preProduction": { "type": "object" },
+        "timeline": { "type": "object" },
+        "mediaSelections": { "type": "object" },
+        "editHistory": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "ownerId",
+        "title",
+        "prompt",
+        "status",
+        "version",
+        "aspectRatio",
+        "durationSec",
+        "runtime",
+        "routingMode",
+        "brandKit",
+        "editHistory",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MediaAssetDoc": {
+      "title": "MediaAssetDoc",
+      "description": "User-uploaded brand logos, stills, audio tracks, and reference files for video projects.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "category": { "type": "string", "enum": ["logo", "image", "audio", "document"] },
+        "mimeType": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "sizeBytes": { "type": "number" },
+        "url": { "type": "string", "minLength": 1, "maxLength": 1500 },
+        "tags": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "name", "category", "mimeType", "sizeBytes", "url", "tags", "createdAt", "updatedAt"]
+    },
+    "HermesMemoryDoc": {
+      "title": "HermesMemoryDoc",
+      "description": "Self-improving creative lessons and promoted recipes.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "kind": { "type": "string", "enum": ["lesson", "synthesized-skill", "episode"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 2500 },
+        "skillMarkdown": { "type": "string", "maxLength": 12000 },
+        "tags": { "type": "array" },
+        "status": { "type": "string", "enum": ["pending-review", "promoted", "archived"] },
+        "sourceProjectId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "ownerId", "kind", "title", "summary", "tags", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profile documents restricted strictly to the owning authenticated user."
+    },
+    "/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/VideoProjectDoc" },
+      "description": "User-owned Monarch Video production projects synced across devices."
+    },
+    "/mediaAssets/{assetId}": {
+      "schema": { "$ref": "#/entities/MediaAssetDoc" },
+      "description": "User-uploaded brand logos, stills, and audio assets."
+    },
+    "/hermesMemories/{memoryId}": {
+      "schema": { "$ref": "#/entities/HermesMemoryDoc" },
+      "description": "Human-gated self-improvement lessons and promoted creative recipes."
+    }
+  }
+}

@@ -201,23 +201,37 @@ export function buildTimelineFromPreProduction(params: {
   };
 }
 
-export function compileToHyperFramesHtml(timeline: UniversalVideoTimeline): string {
+export function compileToHyperFramesHtml(
+  timeline: UniversalVideoTimeline,
+  options?: { animationPreset?: string; videoPreset?: string }
+): string {
+  const animationPreset = options?.animationPreset || 'kinetic-editorial';
+  const videoPreset = options?.videoPreset || 'royal-architectural';
   const safeJson = JSON.stringify(timeline, null, 2).replace(/<\/script>/gi, '<\\/script>');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>${escapeHtml(timeline.projectMeta.title)} — HyperFrames Bundle</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(timeline.projectMeta.title)} — HyperFrames GSAP Bundle</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      width: ${timeline.projectMeta.width}px;
-      height: ${timeline.projectMeta.height}px;
+    html, body {
+      width: 100%;
+      height: 100%;
       overflow: hidden;
-      font-family: "Plus Jakarta Sans", system-ui, sans-serif;
       background: ${timeline.brandKit.primaryColor};
-      color: #ffffff;
+      font-family: "DM Sans", system-ui, sans-serif;
+    }
+    #stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
     }
     .scene {
       position: absolute;
@@ -225,46 +239,106 @@ export function compileToHyperFramesHtml(timeline: UniversalVideoTimeline): stri
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      padding: 88px;
+      padding: clamp(24px, 5vw, 72px);
       opacity: 0;
+      will-change: transform, opacity;
+    }
+    .ambient-glow {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.22;
+    }
+    .scene-top {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
     }
     .kicker {
-      font-size: 24px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: clamp(11px, 1.3vw, 18px);
       letter-spacing: 0.08em;
-      font-weight: 600;
+      font-weight: 500;
+      text-transform: uppercase;
       color: ${timeline.brandKit.accentColor};
     }
+    .brand-tag {
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: clamp(11px, 1.3vw, 17px);
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .hero-block {
+      position: relative;
+      z-index: 2;
+      max-width: 78%;
+    }
+    .hero-block.centered {
+      margin: 0 auto;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
     .headline {
-      font-size: 84px;
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: clamp(24px, 4.4vw, 68px);
       line-height: 1.08;
       font-weight: 700;
-      max-width: 18ch;
-      letter-spacing: -0.025em;
-    }
-    .subheadline {
-      font-size: 32px;
-      line-height: 1.4;
-      max-width: 44ch;
-      opacity: 0.86;
+      letter-spacing: -0.028em;
+      text-wrap: balance;
     }
     .gold-rule {
-      width: 96px;
+      width: clamp(48px, 6vw, 96px);
       height: 3px;
       background: ${timeline.brandKit.accentColor};
-      margin: 28px 0;
+      margin: clamp(12px, 1.8vw, 24px) 0;
+      transform-origin: left center;
+    }
+    .subheadline {
+      font-size: clamp(13px, 1.8vw, 24px);
+      line-height: 1.45;
+      max-width: 48ch;
+      opacity: 0.88;
+    }
+    .scene-footer {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .caption-pill {
+      max-width: 78%;
+      background: rgba(9, 20, 43, 0.72);
+      color: #ffffff;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: clamp(11px, 1.2vw, 16px);
+      line-height: 1.35;
+      backdrop-filter: blur(6px);
+    }
+    .meta-source {
+      font-family: "JetBrains Mono", monospace;
+      font-size: clamp(10px, 1vw, 13px);
+      opacity: 0.65;
     }
   </style>
 </head>
-<body>
+<body data-animation-preset="${escapeHtml(animationPreset)}" data-video-preset="${escapeHtml(videoPreset)}">
   <div id="stage"></div>
   <script id="monarch-timeline" type="application/json">
 ${safeJson}
   </script>
   <script>
-    // Deterministic HyperFrames GSAP Master Timeline
     const timelineData = JSON.parse(document.getElementById("monarch-timeline").textContent);
+    const animPreset = document.body.dataset.animationPreset || "kinetic-editorial";
     const stage = document.getElementById("stage");
-    const master = gsap.timeline({ paused: false });
+    const master = gsap.timeline({ paused: true });
 
     timelineData.scenes.forEach((scene) => {
       const el = document.createElement("section");
@@ -275,25 +349,66 @@ ${safeJson}
       const kicker = scene.elements.find((e) => e.type === "kicker");
       const headline = scene.elements.find((e) => e.type === "headline");
       const sub = scene.elements.find((e) => e.type === "subheadline" || e.type === "cta-card");
+      const caption = scene.captions?.[0]?.text || "";
+      const isCentered = scene.layoutTemplate === "logo-outro";
 
       el.innerHTML = \`
-        <div class="kicker">\${kicker ? kicker.content : scene.title}</div>
-        <div>
+        <div class="ambient-glow" style="background:radial-gradient(circle at 80% 18%, \${scene.background.accentGlow}, transparent 52%)"></div>
+        <div class="scene-top">
+          <span class="kicker">\${kicker ? kicker.content : scene.title}</span>
+          <span class="brand-tag" style="color:\${headline?.color || '#fff'}">\${timelineData.brandKit.brandName}</span>
+        </div>
+        <div class="hero-block \${isCentered ? 'centered' : ''}">
           <h1 class="headline" style="color:\${headline?.color || '#fff'}">\${headline ? headline.content : scene.title}</h1>
           <div class="gold-rule"></div>
           <p class="subheadline" style="color:\${sub?.color || '#cbd5e1'}">\${sub ? sub.content : ''}</p>
         </div>
-        <div style="font-size:20px;opacity:0.7">\${timelineData.brandKit.brandName} · \${scene.mediaRef.source}</div>
+        <div class="scene-footer">
+          <div class="caption-pill">\${caption}</div>
+          <span class="meta-source">\${scene.mediaRef.source} · \${animPreset}</span>
+        </div>
       \`;
       stage.appendChild(el);
 
-      master.to(el, { opacity: 1, duration: 0.45, ease: "power3.out" }, scene.startSec);
-      master.from(el.querySelector(".headline"), { y: 36, opacity: 0, duration: 0.7, ease: "power3.out" }, scene.startSec + 0.1);
-      master.to(el, { opacity: 0, duration: 0.35, ease: "power2.in" }, scene.startSec + scene.durationSec - 0.35);
+      const hEl = el.querySelector(".headline");
+      const ruleEl = el.querySelector(".gold-rule");
+      const subEl = el.querySelector(".subheadline");
+
+      master.to(el, { opacity: 1, duration: 0.4, ease: "power3.out" }, scene.startSec);
+
+      if (animPreset === "satin-gold-wipe") {
+        master.fromTo(hEl, { clipPath: "inset(0 100% 0 0)", opacity: 0.2 }, { clipPath: "inset(0 0% 0 0)", opacity: 1, duration: 0.72, ease: "expo.out" }, scene.startSec + 0.08);
+      } else if (animPreset === "architectural-split") {
+        master.fromTo(hEl, { x: -32, opacity: 0 }, { x: 0, opacity: 1, duration: 0.68, ease: "power3.out" }, scene.startSec + 0.08);
+      } else if (animPreset === "cinematic-zoom") {
+        master.fromTo(el, { scale: 1.05 }, { scale: 1.0, duration: scene.durationSec, ease: "none" }, scene.startSec);
+        master.fromTo(hEl, { y: 18, opacity: 0 }, { y: 0, opacity: 1, duration: 0.85, ease: "power2.out" }, scene.startSec + 0.12);
+      } else {
+        master.fromTo(hEl, { y: 28, opacity: 0 }, { y: 0, opacity: 1, duration: 0.65, ease: "power3.out" }, scene.startSec + 0.08);
+      }
+
+      master.fromTo(ruleEl, { scaleX: 0 }, { scaleX: 1, duration: 0.5, ease: "power2.out" }, scene.startSec + 0.22);
+      master.fromTo(subEl, { y: 14, opacity: 0 }, { y: 0, opacity: 0.9, duration: 0.55, ease: "power2.out" }, scene.startSec + 0.34);
+      master.to(el, { opacity: 0, duration: 0.32, ease: "power2.in" }, Math.max(scene.startSec + 0.6, scene.startSec + scene.durationSec - 0.32));
     });
 
-    // Expose deterministic frame seek hook for HyperFrames CLI / Puppeteer
-    window.__HYPERFRAMES_SEEK__ = (sec) => master.seek(sec).pause();
+    master.seek(0.15).pause();
+
+    // Deterministic frame seek hook for HyperFrames CLI / Puppeteer & Monarch Studio Iframe
+    window.__HYPERFRAMES_SEEK__ = (sec) => master.seek(Math.max(0, Number(sec) || 0)).pause();
+    window.addEventListener("message", (event) => {
+      const msg = event.data;
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "monarch-seek") {
+        master.seek(Math.max(0, Number(msg.sec) || 0));
+      } else if (msg.type === "monarch-play") {
+        if (typeof msg.sec === "number") master.seek(Math.max(0, msg.sec));
+        master.play();
+      } else if (msg.type === "monarch-pause") {
+        if (typeof msg.sec === "number") master.seek(Math.max(0, msg.sec));
+        master.pause();
+      }
+    });
   </script>
 </body>
 </html>`;
@@ -379,10 +494,13 @@ export const RemotionRoot: React.FC = () => (
 `;
 }
 
-export function compileAllTargets(timeline: UniversalVideoTimeline): CompiledTargets {
+export function compileAllTargets(
+  timeline: UniversalVideoTimeline,
+  options?: { animationPreset?: string; videoPreset?: string }
+): CompiledTargets {
   const validation = validateUniversalTimeline(timeline);
   return {
-    hyperframesHtml: compileToHyperFramesHtml(timeline),
+    hyperframesHtml: compileToHyperFramesHtml(timeline, options),
     remotionTsx: compileToRemotionTsx(timeline),
     validation,
   };

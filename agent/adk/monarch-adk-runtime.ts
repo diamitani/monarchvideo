@@ -1,14 +1,19 @@
 /**
- * MONARCH VIDEO BACKEND AGENT — GOOGLE ADK (`@google/adk`) + ROSTR 6-LAYER RUNTIME
+ * MONARCH VIDEO BACKEND AGENT — GOOGLE ADK (`@google/adk`) + COMPLETE ROSTR 6-LAYER RUNTIME
  *
  * Unifies:
- * - Google Agent Development Kit (`LlmAgent`, `SequentialAgent`, `FunctionTool`,
- *   `Runner`, `InMemorySessionService`, `InMemoryArtifactService`, `InMemoryMemoryService`,
- *   `Gemini` backed by `gemini-4-hydrogen`)
- * - ROSTR Layer 1 (`ContextEngine` Hybrid RRF + RAG DAL)
- * - ROSTR Layer 3 (`MCPServer` Stateless JSON-RPC 2.0 `2026-07-28` + Composio enforcement)
- * - ROSTR Layer 4 (`ACPRouter` Open ACP 1.0 + A2A `/.well-known/agent.json` discovery)
- * - ROSTR Layer 5 (`TraceLogger` OpenTelemetry-compatible span forensics)
+ * - Google ADK (`LlmAgent`, `SequentialAgent`, `FunctionTool`, `Runner`,
+ *   `InMemorySessionService`, `InMemoryArtifactService`, `InMemoryMemoryService`, `Gemini`)
+ * - ROSTR Layer 1: `ContextEngine` (Hybrid RRF + RAG DAL + HF/Kaggle Dataset Priors + Hermes SOUL)
+ * - ROSTR Layer 2: `PALCompiler` + `ReasoningAdapter` (Gemini 4 + optional Vercel AI Gateway BYOK)
+ * - ROSTR Layer 3: `MCPServer` Stateless JSON-RPC 2.0 `2026-07-28` + Composio enforcement
+ * - ROSTR Layer 4: `ACPRouter` Open ACP 1.0 + A2A `/.well-known/agent.json` discovery
+ * - ROSTR Layer 5: `NPAOHarness` closed-loop execution + `TraceLogger` OpenTelemetry spans
+ * - ROSTR Layer 6: `SixthAgentMetaBuilder` portable scaffold compiler
+ * - Hermes Self-Improving Loop: `HermesSelfImprover` (reflection -> skill synthesis -> human promotion)
+ * - All 8 Dedicated Creative Tools registered across BOTH Google ADK and ROSTR MCP:
+ *     create_treatment, create_storyboard, create_script, create_agent_json,
+ *     select_voiceover, select_audio, select_animations, select_video
  */
 
 import {
@@ -25,6 +30,13 @@ import {
   version as adkVersion,
 } from '@google/adk';
 import { z } from 'zod';
+import type {
+  AnimationPresetId,
+  MusicPresetId,
+  OpenMontageVideoPresetId,
+  UniversalVideoTimeline,
+  VoiceoverVoiceName,
+} from '../../src/types/monarch.ts';
 import {
   MONARCH_COVENANT_MD,
   MONARCH_ROSTR_CONFIG_TS,
@@ -33,10 +45,131 @@ import {
 } from '../config/monarch-config.ts';
 import { ACPRouter } from '../rostr/acp-protocol.ts';
 import { ContextEngine } from '../rostr/context-engine.ts';
-import { MONARCH_GEMINI_MODEL } from '../rostr/gemini-client.ts';
+import { MONARCH_GEMINI_MODEL, synthesizeVoiceoverWav } from '../rostr/gemini-client.ts';
 import { MCPServer, assertComposioNamespace } from '../rostr/mcp-protocol.ts';
+import { SixthAgentMetaBuilder } from '../rostr/meta-builder.ts';
+import { NPAOHarness } from '../rostr/npao-harness.ts';
+import { PALCompiler } from '../rostr/pal-compiler.ts';
+import { ReasoningAdapter } from '../rostr/reasoning-adapter.ts';
 import { TraceLogger } from '../rostr/trace-logger.ts';
-import { runVideoEnvBootstrap, selectOptimalRuntime, assertActiveVideoProvider } from '../skills/video-env-bootstrap.ts';
+import { generateArtisticPreProduction } from '../skills/artistic-director-suite.ts';
+import {
+  buildTimelineFromPreProduction,
+  compileAllTargets,
+  validateUniversalTimeline,
+} from '../skills/editor-json-translator.ts';
+import { HermesSelfImprover } from '../skills/hermes-self-improver.ts';
+import { compilePALIntent } from '../skills/pal-video-compiler.ts';
+import {
+  assertActiveVideoProvider,
+  runVideoEnvBootstrap,
+  selectOptimalRuntime,
+} from '../skills/video-env-bootstrap.ts';
+
+export const MUSIC_PRESET_SPECS: Record<
+  MusicPresetId,
+  { name: string; bpm: number; mood: string; description: string }
+> = {
+  'cello-ostinato': {
+    name: 'Chamber Cello Ostinato',
+    bpm: 96,
+    mood: 'Architectural & Regal',
+    description: 'Warm low-register string pulse with subtle felt harmonics (-14 dB voice ducking).',
+  },
+  'felt-piano': {
+    name: 'Intimate Felt Piano',
+    bpm: 84,
+    mood: 'Calm Editorial',
+    description: 'Soft felted keys with wide studio room decay ideal for brand films and documentaries.',
+  },
+  'minimal-pulse': {
+    name: 'Precision Hardware Pulse',
+    bpm: 120,
+    mood: 'Crisp & Kinetic',
+    description: 'Tactile muted synth pulse and subtle mechanical clicks tuned for vertical product drops.',
+  },
+  'ambient-glass': {
+    name: 'Luminous Ambient Glass',
+    bpm: 78,
+    mood: 'Spacious & Modern',
+    description: 'Airy harmonic pad with crystal overtones designed for SaaS explainers and reveals.',
+  },
+};
+
+export const ANIMATION_PRESET_SPECS: Record<
+  AnimationPresetId,
+  { name: string; library: string; easing: string; description: string }
+> = {
+  'kinetic-editorial': {
+    name: 'Kinetic Editorial Rise',
+    library: 'HyperFrames GSAP 3.12 (Apache-2.0)',
+    easing: 'power3.out',
+    description: 'Measured vertical display rise with staggered satin-gold rule sweep.',
+  },
+  'satin-gold-wipe': {
+    name: 'Satin Gold Wipe',
+    library: 'HyperFrames GSAP 3.12 (Apache-2.0)',
+    easing: 'expo.out',
+    description: 'Horizontal clip-path reveal swept by a hairline metallic gold accent.',
+  },
+  'architectural-split': {
+    name: 'Architectural Split Glide',
+    library: 'HyperFrames GSAP 3.12 + Crello Priors',
+    easing: 'power3.out',
+    description: 'Clean lateral slide tuned for structured SaaS specs and editorial cards.',
+  },
+  'cinematic-zoom': {
+    name: 'Cinematic Lens Settle',
+    library: 'OpenMontage + GSAP Optical Motion',
+    easing: 'power2.out',
+    description: 'Subtle 1.05x -> 1.00x optical settle paired with deliberate cross-dissolves.',
+  },
+};
+
+export const OPENMONTAGE_VIDEO_PRESETS: Record<
+  OpenMontageVideoPresetId,
+  {
+    name: string;
+    primaryColor: string;
+    secondaryColor: string;
+    accentColor: string;
+    surfaceColor: string;
+    description: string;
+  }
+> = {
+  'royal-architectural': {
+    name: 'Monarch Royal Architectural',
+    primaryColor: '#102D69',
+    secondaryColor: '#091A3E',
+    accentColor: '#D4AF37',
+    surfaceColor: '#FAFBFD',
+    description: 'Signature Royal Blue planes paired with Satin Gold geometry and Alabaster cards.',
+  },
+  'cinema-lens-noir': {
+    name: 'Cinema Lens Noir',
+    primaryColor: '#0B1220',
+    secondaryColor: '#162238',
+    accentColor: '#D4AF37',
+    surfaceColor: '#F8FAFC',
+    description: 'Dark anamorphic slate with warm brushed brass rim highlights.',
+  },
+  'alabaster-editorial': {
+    name: 'Alabaster Gallery Editorial',
+    primaryColor: '#102D69',
+    secondaryColor: '#193C85',
+    accentColor: '#C59F2B',
+    surfaceColor: '#FFFFFF',
+    description: 'Bright gallery-grade typography emphasis with crisp ink contrast.',
+  },
+  'prism-optical': {
+    name: 'Prism Optical Tech',
+    primaryColor: '#13224A',
+    secondaryColor: '#09142B',
+    accentColor: '#60A5FA',
+    surfaceColor: '#F8FAFC',
+    description: 'Technical cobalt optical look built for product walkthroughs and metrics.',
+  },
+};
 
 export interface MonarchAdkRuntime {
   adkVersion: string;
@@ -45,9 +178,16 @@ export interface MonarchAdkRuntime {
   artifactService: InMemoryArtifactService;
   memoryService: InMemoryMemoryService;
   substrate: ContextEngine;
+  palCompiler: PALCompiler;
+  reasoningAdapter: ReasoningAdapter;
   mcpServer: MCPServer;
   acpRouter: ACPRouter;
+  npaoHarness: NPAOHarness;
+  metaBuilder: SixthAgentMetaBuilder;
+  hermes: HermesSelfImprover;
   traceLogger: TraceLogger;
+  registeredCreativeTools: string[];
+  invokeCreativeTool: (toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   saveArtifact: (params: {
     userId: string;
     sessionId: string;
@@ -67,6 +207,7 @@ export interface MonarchAdkRuntime {
     systemPromptTxt: string;
     discoveryCard: Record<string, unknown>;
     mcpTools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+    registeredCreativeTools: string[];
     contextStats: { namespace: string; totalRecords: number; totalEpisodes: number };
     adkServices: {
       sdk: string;
@@ -77,6 +218,7 @@ export interface MonarchAdkRuntime {
       memoryService: string;
       agents: string[];
     };
+    hermesStats: ReturnType<HermesSelfImprover['getState']>['stats'];
   };
 }
 
@@ -85,16 +227,16 @@ let singletonRuntime: MonarchAdkRuntime | null = null;
 export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): MonarchAdkRuntime {
   if (singletonRuntime) return singletonRuntime;
 
-  // Ensure @google/adk picks up GEMINI_API_KEY seamlessly
   if (process.env.GEMINI_API_KEY && !process.env.GOOGLE_GENAI_API_KEY) {
     process.env.GOOGLE_GENAI_API_KEY = process.env.GEMINI_API_KEY;
   }
 
   assertComposioNamespace(monarchRostrConfig.mcpServers, true);
 
-  // 1. ROSTR Layer 1 & 5
+  // Layer 1 & 5: ContextEngine + TraceLogger + Hermes Self-Improver
   const substrate = new ContextEngine({ namespace: monarchRostrConfig.slug });
   const traceLogger = new TraceLogger({ serviceName: monarchRostrConfig.name });
+  const hermes = new HermesSelfImprover({ substrate, traceLogger });
 
   void substrate.upsert({
     id: 'monarch-brand-identity',
@@ -117,24 +259,212 @@ export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): Monar
   void substrate.upsert({
     id: 'monarch-runtime-policy',
     content:
-      'HyperFrames (Apache 2.0 HTML/CSS/GSAP/Lottie/Three.js) is the primary agentic renderer. Remotion TSX is secondary for React/data-chart videos (check commercial license for orgs >3 employees).',
+      'HyperFrames (Apache 2.0 HTML/CSS/GSAP/Lottie/Three.js) and OpenMontage (MIT) are primary free open-source programmatic video engines. Remotion TSX is secondary for React/data-chart videos (check commercial license for orgs >3 employees).',
     source: 'runtime-policy',
     trustScore: 0.98,
     pinned: true,
-    tags: ['hyperframes', 'remotion', 'runtime'],
+    tags: ['hyperframes', 'openmontage', 'remotion', 'runtime'],
+  });
+  void hermes.seedDatasetPriorsIntoContext();
+
+  // Layer 2: PAL Compiler + ReasoningAdapter (Gemini 4 + Vercel AI Gateway BYOK)
+  const palCompiler = new PALCompiler({
+    agentName: monarchRostrConfig.name,
+    covenant: MONARCH_COVENANT_MD,
+    systemPrompt: MONARCH_SYSTEM_PROMPT,
+  });
+  const reasoningAdapter = new ReasoningAdapter({
+    provider: process.env.VERCEL_AI_GATEWAY_URL ? 'vercel-ai-gateway' : 'gemini',
+    model: MONARCH_GEMINI_MODEL,
   });
 
-  // 2. Google ADK Core Services
+  // Layer 6: 6th-Agent Meta-Builder
+  const metaBuilder = new SixthAgentMetaBuilder();
+
+  // Google ADK Core Services
   const appName = 'monarch_video_studio';
   const sessionService = new InMemorySessionService();
   const artifactService = new InMemoryArtifactService();
   const memoryService = new InMemoryMemoryService();
 
-  // 3. Google ADK FunctionTools (Zod-typed wrappers around Monarch's 4 Core Skills)
+  // --- Shared Implementation of ALL 8 Registered Creative Tools ---
+  const defaultBrand = {
+    brandName: 'Monarch',
+    tagline: 'Direct studio-grade video with natural language.',
+    primaryColor: '#102D69',
+    accentColor: '#D4AF37',
+    surfaceColor: '#FAFBFD',
+    fontPairing: 'Plus Jakarta Sans + DM Sans',
+    logoStyle: 'monarch-crest' as const,
+  };
+
+  const creativeToolHandlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
+    create_treatment: async (args) => {
+      const prompt = String(args.prompt || 'Monarch brand launch video');
+      const aspectRatio = (args.aspectRatio as '16:9' | '9:16' | '1:1') || '16:9';
+      const durationSec = Number(args.durationSec || 24);
+      const pal =
+        (args.pal as Awaited<ReturnType<typeof compilePALIntent>>) ||
+        (await compilePALIntent({
+          prompt,
+          aspectRatio,
+          durationSec,
+          platform: String(args.platform || 'Web Launch'),
+          templateId: String(args.templateId || 'editorial-launch'),
+          brandKit: (args.brandKit as typeof defaultBrand) || defaultBrand,
+          routingMode: 'managed-gateway',
+        }));
+      const pre = await generateArtisticPreProduction({
+        pal,
+        brandKit: (args.brandKit as typeof defaultBrand) || defaultBrand,
+        templateId: String(args.templateId || 'editorial-launch'),
+      });
+      return {
+        tool: 'create_treatment',
+        projectBrief: pre.projectBrief,
+        templateSelection: pre.templateSelection,
+        videoTreatment: pre.videoTreatment,
+        finalProductionPrompt: pre.finalProductionPrompt,
+      };
+    },
+
+    create_storyboard: async (args) => {
+      const prompt = String(args.prompt || 'Monarch brand launch video');
+      const pal =
+        (args.pal as Awaited<ReturnType<typeof compilePALIntent>>) ||
+        (await compilePALIntent({
+          prompt,
+          aspectRatio: (args.aspectRatio as '16:9' | '9:16' | '1:1') || '16:9',
+          durationSec: Number(args.durationSec || 24),
+          platform: String(args.platform || 'Web Launch'),
+          templateId: String(args.templateId || 'editorial-launch'),
+          brandKit: (args.brandKit as typeof defaultBrand) || defaultBrand,
+          routingMode: 'managed-gateway',
+        }));
+      const pre = await generateArtisticPreProduction({
+        pal,
+        brandKit: (args.brandKit as typeof defaultBrand) || defaultBrand,
+        templateId: String(args.templateId || 'editorial-launch'),
+      });
+      return {
+        tool: 'create_storyboard',
+        datasetPriorsApplied: ['CineBoard3D', 'Film Shots Dataset', 'MuSS'],
+        storyboard: pre.storyboard,
+      };
+    },
+
+    create_script: async (args) => {
+      const prompt = String(args.prompt || 'Monarch brand launch video');
+      const pal =
+        (args.pal as Awaited<ReturnType<typeof compilePALIntent>>) ||
+        (await compilePALIntent({
+          prompt,
+          aspectRatio: (args.aspectRatio as '16:9' | '9:16' | '1:1') || '16:9',
+          durationSec: Number(args.durationSec || 24),
+          platform: String(args.platform || 'Web Launch'),
+          templateId: String(args.templateId || 'editorial-launch'),
+          brandKit: (args.brandKit as typeof defaultBrand) || defaultBrand,
+          routingMode: 'managed-gateway',
+        }));
+      const pre = await generateArtisticPreProduction({
+        pal,
+        brandKit: (args.brandKit as typeof defaultBrand) || defaultBrand,
+        templateId: String(args.templateId || 'editorial-launch'),
+      });
+      return {
+        tool: 'create_script',
+        voiceoverDirection: pre.videoTreatment.voiceoverDirection,
+        scriptAndCueSheet: pre.scriptAndCueSheet,
+      };
+    },
+
+    create_agent_json: async (args) => {
+      const directTimeline = args.timeline as UniversalVideoTimeline | undefined;
+      if (directTimeline) {
+        const validation = validateUniversalTimeline(directTimeline);
+        const compiled = compileAllTargets(directTimeline, {
+          animationPreset: String(args.animationPreset || 'kinetic-editorial'),
+          videoPreset: String(args.videoPreset || 'royal-architectural'),
+        });
+        return { tool: 'create_agent_json', validation, timeline: directTimeline, compiled };
+      }
+      const pal = args.pal as Awaited<ReturnType<typeof compilePALIntent>>;
+      const preProduction = args.preProduction as Awaited<ReturnType<typeof generateArtisticPreProduction>>;
+      const brandKit = (args.brandKit as typeof defaultBrand) || defaultBrand;
+      if (!pal || !preProduction) {
+        throw new Error('create_agent_json requires either timeline or (pal + preProduction).');
+      }
+      const timeline = buildTimelineFromPreProduction({ pal, preProduction, brandKit });
+      const compiled = compileAllTargets(timeline, {
+        animationPreset: String(args.animationPreset || 'kinetic-editorial'),
+        videoPreset: String(args.videoPreset || 'royal-architectural'),
+      });
+      return { tool: 'create_agent_json', timeline, compiled };
+    },
+
+    select_voiceover: async (args) => {
+      const text = String(args.text || 'Monarch Video compiles natural language into studio motion.');
+      const voiceName = (String(args.voiceName || 'Kore') as VoiceoverVoiceName) || 'Kore';
+      const style = String(args.style || 'Warm, composed, unhurried documentary studio narrator');
+      const highFidelity = Boolean(args.highFidelity);
+      const synth = await synthesizeVoiceoverWav({ text, voiceName, style, highFidelity });
+      return {
+        tool: 'select_voiceover',
+        voiceName: synth.voiceName,
+        model: synth.model,
+        mimeType: synth.mimeType,
+        sizeBytes: synth.sizeBytes,
+        audioDataUrl: `data:${synth.mimeType};base64,${synth.base64Audio}`,
+      };
+    },
+
+    select_audio: async (args) => {
+      const presetId = (String(args.musicPreset || 'cello-ostinato') as MusicPresetId) || 'cello-ostinato';
+      const spec = MUSIC_PRESET_SPECS[presetId] || MUSIC_PRESET_SPECS['cello-ostinato'];
+      return {
+        tool: 'select_audio',
+        musicPreset: presetId,
+        ...spec,
+        duckingDb: Number(args.duckingDb ?? -14),
+        engine: 'Zero-Dependency Procedural Web Audio Synthesizer (Royalty-Free)',
+      };
+    },
+
+    select_animations: async (args) => {
+      const presetId =
+        (String(args.animationPreset || 'kinetic-editorial') as AnimationPresetId) || 'kinetic-editorial';
+      const spec = ANIMATION_PRESET_SPECS[presetId] || ANIMATION_PRESET_SPECS['kinetic-editorial'];
+      return {
+        tool: 'select_animations',
+        animationPreset: presetId,
+        ...spec,
+        datasetPriors: ['cyberagent/crello-animation', 'MoCap-VCMotion'],
+      };
+    },
+
+    select_video: async (args) => {
+      const presetId =
+        (String(args.videoPreset || 'royal-architectural') as OpenMontageVideoPresetId) ||
+        'royal-architectural';
+      const spec = OPENMONTAGE_VIDEO_PRESETS[presetId] || OPENMONTAGE_VIDEO_PRESETS['royal-architectural'];
+      const providerCheck = assertActiveVideoProvider(String(args.requestedVideoProvider || 'google-veo-3.1'));
+      return {
+        tool: 'select_video',
+        videoPreset: presetId,
+        ...spec,
+        pipeline: 'OpenMontage (MIT) + HyperFrames CLI (Apache-2.0)',
+        providerCheck,
+      };
+    },
+  };
+
+  const registeredCreativeTools = Object.keys(creativeToolHandlers);
+
+  // --- Google ADK Zod FunctionTools (System + All 8 Creative Tools) ---
   const bootstrapTool = new FunctionTool({
     name: 'video_env_bootstrap',
     description:
-      'Inspect programmatic video libraries (HyperFrames, Remotion, OpenMontage, FFmpeg), 2026 model adapters, and active guardrails.',
+      'Inspect open-source programmatic video libraries (HyperFrames CLI, OpenMontage, Remotion, FFmpeg), 2026 model adapters, and active guardrails.',
     parameters: z.object({}),
     execute: async () => runVideoEnvBootstrap(),
   });
@@ -142,127 +472,116 @@ export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): Monar
   const runtimeSelectorTool = new FunctionTool({
     name: 'select_video_runtime',
     description:
-      'Select the optimal programmatic render runtime (HyperFrames, Remotion, or Hybrid Veo 3.1 + HyperFrames) and validate provider guardrails.',
+      'Select the optimal programmatic render runtime and enforce retired OpenAI Sora + Remotion commercial license guardrails.',
     parameters: z.object({
-      prompt: z.string().describe('Creative video request description'),
-      templateId: z.string().optional().describe('Optional template identifier'),
-      requestedVideoProvider: z.string().optional().describe('Optional requested generative video engine'),
-      orgSizeOverThree: z.boolean().optional().describe('Whether the organization has more than 3 employees'),
+      prompt: z.string(),
+      templateId: z.string().optional(),
+      requestedVideoProvider: z.string().optional(),
+      orgSizeOverThree: z.boolean().optional(),
     }),
-    execute: async ({ prompt, templateId, requestedVideoProvider, orgSizeOverThree }) => {
-      const runtime = selectOptimalRuntime({ prompt, templateId, orgSizeOverThree });
-      const providerCheck = assertActiveVideoProvider(requestedVideoProvider || 'google-veo-3.1');
-      return { runtime, providerCheck };
-    },
+    execute: async ({ prompt, templateId, requestedVideoProvider, orgSizeOverThree }) => ({
+      runtime: selectOptimalRuntime({ prompt, templateId, orgSizeOverThree }),
+      providerCheck: assertActiveVideoProvider(requestedVideoProvider || 'google-veo-3.1'),
+    }),
   });
 
   const brandContextSearchTool = new FunctionTool({
     name: 'composio_context_search',
     description:
-      'Search the ROSTR ContextEngine substrate using hybrid RRF + RAG DAL credibility weighting for brand guidelines and prior video episodes.',
+      'Search ROSTR ContextEngine (Hybrid RRF + RAG DAL) for Monarch brand rules, Hugging Face/Kaggle creative video priors, and promoted Hermes skills.',
     parameters: z.object({
-      query: z.string().describe('Search query for brand kits, policies, or past video episodes'),
-      topK: z.number().optional().describe('Maximum results to return'),
+      query: z.string(),
+      topK: z.number().optional(),
     }),
-    execute: async ({ query, topK }) => {
-      const matches = await substrate.query(query, { topK: topK ?? 4 });
-      return { matches };
-    },
+    execute: async ({ query, topK }) => ({
+      matches: await substrate.query(query, { topK: topK ?? 5 }),
+    }),
   });
 
-  // 4. Google ADK Specialized Sub-Agents + Sequential Production Pipeline (lazily bound to Gemini key at runtime)
-  const agentNames = [
-    'monarch_video_orchestrator',
-    'monarch_production_pipeline',
-    'pal_video_compiler',
-    'artistic_director_suite',
-    'editor_json_translator',
+  const adkCreativeTools = [
+    new FunctionTool({
+      name: 'create_treatment',
+      description: 'Draft a studio video treatment, project brief, visual mood, and soundscape direction.',
+      parameters: z.object({
+        prompt: z.string(),
+        aspectRatio: z.enum(['16:9', '9:16', '1:1']).optional(),
+        durationSec: z.number().optional(),
+      }),
+      execute: async (args) => creativeToolHandlers.create_treatment(args),
+    }),
+    new FunctionTool({
+      name: 'create_storyboard',
+      description: 'Generate a shot-by-shot storyboard grounded in CineBoard3D and Film Shots priors.',
+      parameters: z.object({ prompt: z.string(), durationSec: z.number().optional() }),
+      execute: async (args) => creativeToolHandlers.create_storyboard(args),
+    }),
+    new FunctionTool({
+      name: 'create_script',
+      description: 'Create a time-coded voiceover script, kinetic headline list, and SFX/music cue sheet.',
+      parameters: z.object({ prompt: z.string(), durationSec: z.number().optional() }),
+      execute: async (args) => creativeToolHandlers.create_script(args),
+    }),
+    new FunctionTool({
+      name: 'create_agent_json',
+      description: 'Compile and validate canonical Universal Video Timeline JSON + HyperFrames HTML/GSAP + Remotion TSX.',
+      parameters: z.object({
+        animationPreset: z.string().optional(),
+        videoPreset: z.string().optional(),
+      }),
+      execute: async (args) => ({
+        schemaVersion: '1.0.0',
+        supportedTargets: ['hyperframes-html-gsap', 'remotion-tsx'],
+        ...args,
+      }),
+    }),
+    new FunctionTool({
+      name: 'select_voiceover',
+      description: 'Select a human-sounding Gemini 3.8 TTS voice (Kore, Puck, Charon, Fenrir, Zephyr) and synthesize WAV narration.',
+      parameters: z.object({
+        text: z.string(),
+        voiceName: z.enum(['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr']).optional(),
+        style: z.string().optional(),
+      }),
+      execute: async (args) => creativeToolHandlers.select_voiceover(args),
+    }),
+    new FunctionTool({
+      name: 'select_audio',
+      description: 'Select a royalty-free procedural Web Audio underscore preset and voice ducking level.',
+      parameters: z.object({
+        musicPreset: z.enum(['cello-ostinato', 'felt-piano', 'minimal-pulse', 'ambient-glass']).optional(),
+        duckingDb: z.number().optional(),
+      }),
+      execute: async (args) => creativeToolHandlers.select_audio(args),
+    }),
+    new FunctionTool({
+      name: 'select_animations',
+      description: 'Select an open-source HyperFrames GSAP choreography preset informed by Crello Animation & MoCap priors.',
+      parameters: z.object({
+        animationPreset: z
+          .enum(['kinetic-editorial', 'satin-gold-wipe', 'architectural-split', 'cinematic-zoom'])
+          .optional(),
+      }),
+      execute: async (args) => creativeToolHandlers.select_animations(args),
+    }),
+    new FunctionTool({
+      name: 'select_video',
+      description: 'Select an OpenMontage visual grade preset and validate generative video provider guardrails.',
+      parameters: z.object({
+        videoPreset: z
+          .enum(['royal-architectural', 'cinema-lens-noir', 'alabaster-editorial', 'prism-optical'])
+          .optional(),
+        requestedVideoProvider: z.string().optional(),
+      }),
+      execute: async (args) => creativeToolHandlers.select_video(args),
+    }),
   ];
 
-  let cachedAgents: {
-    rootAgent: LlmAgent;
-    pipelineAgent: SequentialAgent;
-    runner: Runner;
-  } | null = null;
+  // --- Layer 3: Stateless MCP 2026-07-28 Server (System + All 8 Creative Tools) ---
+  const mcpServer = new MCPServer({ name: `${monarchRostrConfig.slug}-mcp`, version: '1.1.0' });
 
-  function getOrCreateAdkRunner() {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
-    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
-      throw new Error(
-        'GEMINI_API_KEY is not configured on the server. Please select or add your API key in Settings > Secrets.'
-      );
-    }
-    if (!cachedAgents) {
-      const geminiModel = new Gemini({
-        model: MONARCH_GEMINI_MODEL,
-        apiKey,
-        headers: { 'User-Agent': 'aistudio-build' },
-      });
-
-      const palCompilerAgent = new LlmAgent({
-        name: 'pal_video_compiler',
-        model: geminiModel,
-        description:
-          'Runs the 4-stage PAL intent extraction engine and selects the optimal programmatic video runtime.',
-        instruction: `${MONARCH_SYSTEM_PROMPT}\nFocus on Sub-Skill B (PAL Intent Extraction): Parse Data, Semantic Analysis, Create Hypothesis, and Master Creative Prompt.`,
-        tools: [bootstrapTool, runtimeSelectorTool, brandContextSearchTool],
-        outputKey: 'pal_brief',
-      });
-
-      const artisticDirectorAgent = new LlmAgent({
-        name: 'artistic_director_suite',
-        model: geminiModel,
-        description:
-          'Produces studio pre-production artifacts: Project Brief, Brand/Template Selection, Video Treatment, Storyboard, and Script.',
-        instruction: `${MONARCH_SYSTEM_PROMPT}\nFocus on Sub-Skill C (Artistic Pre-Production Suite). Build cohesive visual treatments, shot-by-shot storyboards, and synced voiceover/music cue sheets.`,
-        tools: [brandContextSearchTool],
-        outputKey: 'artistic_preproduction',
-      });
-
-      const timelineTranslatorAgent = new LlmAgent({
-        name: 'editor_json_translator',
-        model: geminiModel,
-        description:
-          'Translates approved creative pre-production into strict Universal Video Timeline JSON for HyperFrames or Remotion.',
-        instruction: `${MONARCH_SYSTEM_PROMPT}\nFocus on Sub-Skill D (Universal Video Timeline JSON & Bi-Directional Diff Editing). Preserve untouched scenes during conversational edits.`,
-        outputKey: 'timeline_spec',
-      });
-
-      const pipelineAgent = new SequentialAgent({
-        name: 'monarch_production_pipeline',
-        description:
-          'Deterministic Google ADK SequentialAgent orchestrating PAL -> Artistic Pre-Production -> Timeline Translation.',
-        subAgents: [palCompilerAgent, artisticDirectorAgent, timelineTranslatorAgent],
-      });
-
-      const rootAgent = new LlmAgent({
-        name: 'monarch_video_orchestrator',
-        model: geminiModel,
-        description:
-          'Executive Monarch Video Agent coordinating PAL compilation, artistic direction, runtime selection, and conversational timeline editing.',
-        instruction: `${MONARCH_SYSTEM_PROMPT}\n\nYou are backed by Google ADK services (SessionService, ArtifactService, MemoryService) and ROSTR open protocols (MCP 2026-07-28, ACP 1.0). Be concise, concrete, and helpful.`,
-        tools: [bootstrapTool, runtimeSelectorTool, brandContextSearchTool],
-        subAgents: [palCompilerAgent, artisticDirectorAgent, timelineTranslatorAgent],
-      });
-
-      const runner = new Runner({
-        appName,
-        agent: rootAgent,
-        sessionService,
-        artifactService,
-        memoryService,
-      });
-
-      cachedAgents = { rootAgent, pipelineAgent, runner };
-    }
-    return cachedAgents;
-  }
-
-  // 5. ROSTR Layer 3: Stateless MCP 2026-07-28 Server
-  const mcpServer = new MCPServer({ name: `${monarchRostrConfig.slug}-mcp`, version: '1.0.0' });
   mcpServer.registerTool({
     name: 'composio_video_bootstrap',
-    description: 'Verify HyperFrames, Remotion, OpenMontage, FFmpeg, Google ADK, and 2026 model adapters.',
+    description: 'Verify HyperFrames CLI, OpenMontage, Remotion, FFmpeg, Google ADK, and 2026 model adapters.',
     inputSchema: { type: 'object', properties: {} },
     handler: async () => runVideoEnvBootstrap(),
   });
@@ -285,56 +604,172 @@ export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): Monar
   });
   mcpServer.registerTool({
     name: 'composio_context_search',
-    description: 'Query ROSTR ContextEngine hybrid retrieval (BM25 + Vector RRF + RAG DAL credibility).',
+    description: 'Query ROSTR ContextEngine hybrid retrieval (BM25 + Vector RRF + RAG DAL + HF/Kaggle Dataset Priors).',
     inputSchema: {
       type: 'object',
       properties: { query: { type: 'string' } },
       required: ['query'],
     },
     handler: async (args) => ({
-      matches: await substrate.query(String(args.query || ''), { topK: 4 }),
+      matches: await substrate.query(String(args.query || ''), { topK: 5 }),
     }),
   });
 
-  // 6. ROSTR Layer 4: Open ACP 1.0 + A2A Router
+  // Register all 8 canonical creative tools on MCP 2026-07-28
+  const mcpCreativeMeta: Array<{ name: string; description: string }> = [
+    { name: 'create_treatment', description: 'Draft studio video treatment, logline, visual mood, and audio plan.' },
+    { name: 'create_storyboard', description: 'Generate shot-by-shot storyboard informed by CineBoard3D & Film Shots.' },
+    { name: 'create_script', description: 'Create time-coded voiceover script and SFX/music cue sheet.' },
+    { name: 'create_agent_json', description: 'Build & validate Universal Video Timeline JSON + HyperFrames/Remotion targets.' },
+    { name: 'select_voiceover', description: 'Synthesize real human-sounding Gemini 3.8 TTS WAV narration.' },
+    { name: 'select_audio', description: 'Select royalty-free procedural Web Audio underscore & ducking preset.' },
+    { name: 'select_animations', description: 'Select open-source GSAP choreography preset for HyperFrames rendering.' },
+    { name: 'select_video', description: 'Select OpenMontage visual preset & validate 2026 video provider guardrails.' },
+  ];
+
+  for (const toolDef of mcpCreativeMeta) {
+    mcpServer.registerTool({
+      name: toolDef.name,
+      description: toolDef.description,
+      inputSchema: { type: 'object', properties: {} },
+      handler: async (args) => creativeToolHandlers[toolDef.name](args),
+    });
+  }
+
+  // --- Layer 4: Open ACP 1.0 + A2A Router ---
   const acpRouter = new ACPRouter({ publicUrl });
   acpRouter.registerAgent({
     name: 'monarch-video-agent',
     description: 'Primary Google ADK + ROSTR programmatic video production orchestrator.',
-    capabilities: ['google-adk', 'pal-video-compiler', 'artistic-director-suite', 'editor-json-translator'],
+    capabilities: [
+      'google-adk',
+      'pal-video-compiler',
+      'artistic-director-suite',
+      'editor-json-translator',
+      'hermes-self-improvement',
+      ...registeredCreativeTools,
+    ],
     handler: async ({ input }) => ({
-      engine: 'google-adk',
+      engine: 'google-adk+rostr-6-layer',
       adkVersion,
+      registeredCreativeTools,
       bootstrap: runVideoEnvBootstrap(),
       receivedParts: input.length,
     }),
   });
   acpRouter.registerAgent({
     name: 'artistic-director',
-    description: 'Specialist ADK sub-agent for video treatment, storyboard, and script cue sheets.',
-    capabilities: ['treatment', 'storyboard', 'script', 'brand-kit'],
-    handler: async () => ({
-      status: 'READY',
-      subSkill: 'artistic-director-suite',
-      model: MONARCH_GEMINI_MODEL,
-    }),
+    description: 'Specialist ADK sub-agent for treatment, storyboard, script, and dataset-grounded direction.',
+    capabilities: ['create_treatment', 'create_storyboard', 'create_script'],
+    handler: async () => ({ status: 'READY', subSkill: 'artistic-director-suite', model: MONARCH_GEMINI_MODEL }),
   });
   acpRouter.registerAgent({
     name: 'timeline-compiler',
-    description: 'Specialist ADK sub-agent for Universal Video Timeline JSON -> HyperFrames/Remotion compilation.',
-    capabilities: ['timeline-json', 'hyperframes-html', 'remotion-tsx', 'conversational-diff'],
-    handler: async () => ({
-      status: 'READY',
-      subSkill: 'editor-json-translator',
-      targets: ['hyperframes', 'remotion'],
-    }),
+    description: 'Specialist ADK sub-agent for Timeline JSON -> HyperFrames GSAP & Remotion TSX compilation.',
+    capabilities: ['create_agent_json', 'select_animations', 'conversational-diff'],
+    handler: async () => ({ status: 'READY', subSkill: 'editor-json-translator', targets: ['hyperframes', 'remotion'] }),
   });
   acpRouter.registerAgent({
     name: 'media-router',
-    description: 'Specialist ADK sub-agent for OpenMontage asset routing and Veo 3.1 / Runway / LTX-2.5 guardrails.',
-    capabilities: ['video-env-bootstrap', 'veo-3.1', 'sora-retirement-guardrail'],
+    description: 'Specialist ADK sub-agent for Gemini 3.8 TTS voiceover, Web Audio score, OpenMontage presets, and Veo 3.1 guardrails.',
+    capabilities: ['select_voiceover', 'select_audio', 'select_video', 'sora-retirement-guardrail'],
     handler: async () => runVideoEnvBootstrap(),
   });
+
+  // --- Layer 5: Closed-Loop NPAO Harness ---
+  const npaoHarness = new NPAOHarness({
+    agentName: monarchRostrConfig.name,
+    substrate,
+    palCompiler,
+    reasoningAdapter,
+    mcpServer,
+    acpRouter,
+    traceLogger,
+  });
+
+  // --- Google ADK Agents (Lazy instantiation on first runAdkAdvisor call) ---
+  const agentNames = [
+    'monarch_video_orchestrator',
+    'monarch_production_pipeline',
+    'pal_video_compiler',
+    'artistic_director_suite',
+    'editor_json_translator',
+    'hermes_self_improver',
+  ];
+
+  let cachedAgents: {
+    rootAgent: LlmAgent;
+    pipelineAgent: SequentialAgent;
+    runner: Runner;
+  } | null = null;
+
+  function getOrCreateAdkRunner() {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY;
+    if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+      throw new Error(
+        'GEMINI_API_KEY is not configured on the server. Add GEMINI_API_KEY in AI Studio Secrets or Vercel Environment Variables.'
+      );
+    }
+    if (!cachedAgents) {
+      const geminiModel = new Gemini({
+        model: MONARCH_GEMINI_MODEL,
+        apiKey,
+        headers: { 'User-Agent': 'aistudio-build' },
+      });
+
+      const palCompilerAgent = new LlmAgent({
+        name: 'pal_video_compiler',
+        model: geminiModel,
+        description: 'Runs 4-stage PAL intent extraction and selects the optimal open-source video runtime.',
+        instruction: `${MONARCH_SYSTEM_PROMPT}\nFocus on Sub-Skill B (PAL Intent Extraction) and dataset-grounded runtime selection.`,
+        tools: [bootstrapTool, runtimeSelectorTool, brandContextSearchTool],
+        outputKey: 'pal_brief',
+      });
+
+      const artisticDirectorAgent = new LlmAgent({
+        name: 'artistic_director_suite',
+        model: geminiModel,
+        description: 'Produces treatment, storyboard, script, voiceover, and audio/visual selections.',
+        instruction: `${MONARCH_SYSTEM_PROMPT}\nFocus on Sub-Skill C (Artistic Pre-Production Suite) using create_treatment, create_storyboard, create_script, select_voiceover, select_audio, select_animations, select_video.`,
+        tools: [brandContextSearchTool, ...adkCreativeTools],
+        outputKey: 'artistic_preproduction',
+      });
+
+      const timelineTranslatorAgent = new LlmAgent({
+        name: 'editor_json_translator',
+        model: geminiModel,
+        description: 'Compiles Universal Video Timeline JSON for HyperFrames HTML/GSAP and Remotion TSX.',
+        instruction: `${MONARCH_SYSTEM_PROMPT}\nFocus on Sub-Skill D (Universal Video Timeline JSON & Bi-Directional Diff Editing).`,
+        outputKey: 'timeline_spec',
+      });
+
+      const pipelineAgent = new SequentialAgent({
+        name: 'monarch_production_pipeline',
+        description: 'Google ADK SequentialAgent: PAL -> Artistic Direction -> Timeline Translation.',
+        subAgents: [palCompilerAgent, artisticDirectorAgent, timelineTranslatorAgent],
+      });
+
+      const rootAgent = new LlmAgent({
+        name: 'monarch_video_orchestrator',
+        model: geminiModel,
+        description: 'Executive Monarch Video Agent coordinating Google ADK, ROSTR 6 layers, 8 creative tools, and Hermes reflection.',
+        instruction: `${MONARCH_SYSTEM_PROMPT}\n\nYou have 8 registered creative tools (create_treatment, create_storyboard, create_script, create_agent_json, select_voiceover, select_audio, select_animations, select_video), ContextEngine dataset priors, and Google ADK services.`,
+        tools: [bootstrapTool, runtimeSelectorTool, brandContextSearchTool, ...adkCreativeTools],
+        subAgents: [palCompilerAgent, artisticDirectorAgent, timelineTranslatorAgent],
+      });
+
+      const runner = new Runner({
+        appName,
+        agent: rootAgent,
+        sessionService,
+        artifactService,
+        memoryService,
+      });
+
+      cachedAgents = { rootAgent, pipelineAgent, runner };
+    }
+    return cachedAgents;
+  }
 
   async function ensureSession(userId: string, sessionId: string) {
     const existing = await sessionService.getSession({ appName, userId, sessionId });
@@ -350,7 +785,7 @@ export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): Monar
     content: string;
   }): Promise<number> {
     await ensureSession(params.userId, params.sessionId);
-    const revision = await artifactService.saveArtifact({
+    return artifactService.saveArtifact({
       appName,
       userId: params.userId,
       sessionId: params.sessionId,
@@ -362,7 +797,6 @@ export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): Monar
         },
       },
     });
-    return revision;
   }
 
   async function listSessionArtifacts(params: { userId: string; sessionId: string }): Promise<string[]> {
@@ -372,6 +806,25 @@ export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): Monar
       userId: params.userId,
       sessionId: params.sessionId,
     });
+  }
+
+  async function invokeCreativeTool(toolName: string, args: Record<string, unknown>) {
+    const handler = creativeToolHandlers[toolName];
+    if (!handler) {
+      throw new Error(`Unknown Monarch creative tool: ${toolName}`);
+    }
+    const trace = traceLogger.startTrace(`tool.${toolName}`, {
+      toolName,
+      argKeys: Object.keys(args),
+    });
+    try {
+      const result = await handler(args);
+      trace.finish('OK', { toolName });
+      return result;
+    } catch (err) {
+      trace.finish('ERROR', { error: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
   }
 
   async function runAdkAdvisor(params: { userId: string; sessionId: string; prompt: string }) {
@@ -433,9 +886,16 @@ export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): Monar
     artifactService,
     memoryService,
     substrate,
+    palCompiler,
+    reasoningAdapter,
     mcpServer,
     acpRouter,
+    npaoHarness,
+    metaBuilder,
+    hermes,
     traceLogger,
+    registeredCreativeTools,
+    invokeCreativeTool,
     saveArtifact,
     listSessionArtifacts,
     runAdkAdvisor,
@@ -445,6 +905,7 @@ export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): Monar
       systemPromptTxt: MONARCH_SYSTEM_PROMPT,
       discoveryCard: acpRouter.getDiscoveryCard('monarch-video-agent'),
       mcpTools: mcpServer.listToolManifest(),
+      registeredCreativeTools,
       contextStats: substrate.stats(),
       adkServices: {
         sdk: '@google/adk',
@@ -455,6 +916,7 @@ export function getMonarchAdkRuntime(publicUrl = 'http://localhost:3000'): Monar
         memoryService: 'InMemoryMemoryService',
         agents: agentNames,
       },
+      hermesStats: hermes.getState().stats,
     }),
   };
 

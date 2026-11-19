@@ -8,7 +8,48 @@ export type ProjectCategory =
   | 'Social Short'
   | 'Documentary';
 
-export type RoutingMode = 'managed-gateway' | 'byok-server';
+export type RoutingMode = 'managed-gateway' | 'byok-server' | 'vercel-ai-gateway';
+
+export type VoiceoverVoiceName = 'Kore' | 'Puck' | 'Charon' | 'Fenrir' | 'Zephyr';
+export type MusicPresetId = 'cello-ostinato' | 'felt-piano' | 'minimal-pulse' | 'ambient-glass';
+export type AnimationPresetId =
+  | 'kinetic-editorial'
+  | 'satin-gold-wipe'
+  | 'architectural-split'
+  | 'cinematic-zoom';
+export type OpenMontageVideoPresetId =
+  | 'royal-architectural'
+  | 'cinema-lens-noir'
+  | 'alabaster-editorial'
+  | 'prism-optical';
+
+export interface VoiceoverClip {
+  sceneId: string;
+  text: string;
+  voiceName: VoiceoverVoiceName;
+  style: string;
+  mimeType: string;
+  audioDataUrl: string;
+  generatedAt: string;
+}
+
+export interface StudioMediaSelections {
+  voiceover: {
+    voiceName: VoiceoverVoiceName;
+    style: string;
+    model: 'gemini-3.8-flash-lite-tts' | 'gemini-3.8-flash-tts';
+    clips: VoiceoverClip[];
+  };
+  audio: {
+    musicPreset: MusicPresetId;
+    bpm: number;
+    musicVolume: number;
+    duckingDb: number;
+    sfxEnabled: boolean;
+  };
+  animationPreset: AnimationPresetId;
+  videoPreset: OpenMontageVideoPresetId;
+}
 
 export interface BrandKit {
   brandName: string;
@@ -172,14 +213,18 @@ export interface UniversalVideoTimeline {
   };
   brandKit: BrandKit;
   renderRuntime: 'hyperframes' | 'remotion';
+  animationPreset?: AnimationPresetId;
+  videoPreset?: OpenMontageVideoPresetId;
   audioTracks: {
     voiceover: {
       voicePersona: string;
+      voiceName?: VoiceoverVoiceName;
       provider: string;
       totalLines: number;
     };
     music: {
       style: string;
+      presetId?: MusicPresetId;
       bpm: number;
       mood: string;
       duckingDb: number;
@@ -216,7 +261,7 @@ export interface VideoProject {
   id: string;
   title: string;
   prompt: string;
-  status: 'pal-ready' | 'preproduction-ready' | 'compiled';
+  status: 'draft' | 'pal-ready' | 'preproduction-ready' | 'compiled' | 'published';
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -225,6 +270,8 @@ export interface VideoProject {
   runtime: RenderRuntime;
   routingMode: RoutingMode;
   brandKit: BrandKit;
+  mediaSelections?: StudioMediaSelections;
+  attachedAssetIds?: string[];
   pal?: PALOutput;
   preProduction?: ArtisticPreProduction;
   timeline?: UniversalVideoTimeline;
@@ -236,6 +283,27 @@ export interface VideoProject {
     diffSummary: string;
     patchedSceneIds: string[];
   }>;
+}
+
+export interface MediaAsset {
+  id: string;
+  name: string;
+  category: 'logo' | 'image' | 'audio' | 'document';
+  mimeType: string;
+  sizeBytes: number;
+  url: string;
+  tags: string[];
+  createdAt: string;
+}
+
+export interface WorkspaceIntegration {
+  id: string;
+  name: string;
+  category: 'social' | 'storage' | 'workflow';
+  description: string;
+  connected: boolean;
+  statusLabel: string;
+  endpointHint?: string;
 }
 
 export interface RuntimeLibraryStatus {
@@ -258,9 +326,19 @@ export interface ModelAdapterStatus {
   guardrailNote?: string;
 }
 
+export interface CliBinaryProbe {
+  available: boolean;
+  path?: string;
+}
+
 export interface BootstrapReport {
   checkedAt: string;
   nodeVersion: string;
+  cliBinaries: {
+    node: CliBinaryProbe;
+    npx: CliBinaryProbe;
+    ffmpeg: CliBinaryProbe;
+  };
   protocolVersions: {
     mcp: string;
     acp: string;
@@ -284,15 +362,28 @@ export interface RostrTraceSpan {
   attributes: Record<string, unknown>;
 }
 
-export interface AgentConfigBundle {
-  covenantMd: string;
-  rostrConfigTs: string;
-  systemPromptTxt: string;
-  discoveryCard: Record<string, unknown>;
-  mcpTools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
-  contextStats: {
-    namespace: string;
-    totalRecords: number;
-    totalEpisodes: number;
+export interface VerificationCheckResult {
+  id: string;
+  layer: string;
+  name: string;
+  passed: boolean;
+  durationMs: number;
+  detail: string;
+}
+
+export interface VerificationSuiteReport {
+  executedAt: string;
+  overallPassed: boolean;
+  summary: {
+    total: number;
+    passed: number;
+    failed: number;
   };
+  checks: VerificationCheckResult[];
+}
+
+export interface SixthAgentBlueprint {
+  slug: string;
+  mcpServers: string[];
+  files: Record<string, string>;
 }

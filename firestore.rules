@@ -1,0 +1,253 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Hardened Global Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Entity Validation Blueprint: UserProfile
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'defaultBrandName', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000))
+        && (!('defaultBrandName' in data) || (data.defaultBrandName is string && data.defaultBrandName.size() >= 1 && data.defaultBrandName.size() <= 120))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Entity Validation Blueprint: VideoProjectDoc
+    function isValidVideoProject(data, projectId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'title', 'prompt', 'status', 'version',
+          'aspectRatio', 'durationSec', 'runtime', 'routingMode',
+          'brandKit', 'editHistory', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'title', 'prompt', 'status', 'version',
+          'aspectRatio', 'durationSec', 'runtime', 'routingMode',
+          'brandKit', 'pal', 'preProduction', 'timeline', 'mediaSelections',
+          'editHistory', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == projectId
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.prompt is string && data.prompt.size() >= 1 && data.prompt.size() <= 4000
+        && data.status is string && data.status in ['draft', 'pal-ready', 'preproduction-ready', 'compiled', 'published']
+        && data.version is number && data.version >= 1 && data.version <= 1000
+        && data.aspectRatio is string && data.aspectRatio in ['16:9', '9:16', '1:1']
+        && data.durationSec is number && data.durationSec >= 3 && data.durationSec <= 300
+        && data.runtime is string && data.runtime in ['hyperframes', 'remotion', 'hybrid-veo-hyperframes']
+        && data.routingMode is string && data.routingMode in ['managed-gateway', 'byok-server']
+        && data.brandKit is map
+        && (!('pal' in data) || data.pal is map)
+        && (!('preProduction' in data) || data.preProduction is map)
+        && (!('timeline' in data) || data.timeline is map)
+        && (!('mediaSelections' in data) || data.mediaSelections is map)
+        && data.editHistory is list && data.editHistory.size() <= 50
+        && (data.editHistory.size() == 0 || data.editHistory[0] is map)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Entity Validation Blueprint: MediaAssetDoc
+    function isValidMediaAsset(data, assetId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'name', 'category', 'mimeType', 'sizeBytes', 'url', 'tags', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'name', 'category', 'mimeType', 'sizeBytes', 'url', 'tags', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == assetId
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 200
+        && data.category is string && data.category in ['logo', 'image', 'audio', 'document']
+        && data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 120
+        && data.sizeBytes is number && data.sizeBytes >= 0 && data.sizeBytes <= 52428800
+        && data.url is string && data.url.size() >= 1 && data.url.size() <= 1500
+        && data.tags is list && data.tags.size() <= 10
+        && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 64))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Entity Validation Blueprint: HermesMemoryDoc
+    function isValidHermesMemory(data, memoryId) {
+      return data.keys().hasAll([
+          'id', 'ownerId', 'kind', 'title', 'summary', 'tags', 'status', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerId', 'kind', 'title', 'summary', 'skillMarkdown',
+          'tags', 'status', 'sourceProjectId', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == memoryId
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.ownerId == request.auth.uid
+        && data.kind is string && data.kind in ['lesson', 'synthesized-skill', 'episode']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 2500
+        && (!('skillMarkdown' in data) || (data.skillMarkdown is string && data.skillMarkdown.size() <= 12000))
+        && (!('sourceProjectId' in data) || (data.sourceProjectId is string && data.sourceProjectId.size() <= 128))
+        && data.tags is list && data.tags.size() <= 10
+        && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 64))
+        && data.status is string && data.status in ['pending-review', 'promoted', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Collection 1: /users/{userId}
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isSignedIn()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'email', 'photoURL', 'defaultBrandName', 'updatedAt'
+        ]);
+      allow delete: if isSignedIn() && isValidId(userId) && isOwner(userId);
+    }
+
+    // Collection 2: /projects/{projectId}
+    match /projects/{projectId} {
+      allow get: if isSignedIn()
+        && isValidId(projectId)
+        && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn()
+        && existing().ownerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isValidId(projectId)
+        && isValidVideoProject(incoming(), projectId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(projectId)
+        && isValidVideoProject(incoming(), projectId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'prompt', 'status', 'version', 'aspectRatio', 'durationSec',
+            'runtime', 'routingMode', 'brandKit', 'pal', 'preProduction',
+            'timeline', 'mediaSelections', 'editHistory', 'updatedAt'
+          ]) ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'status', 'updatedAt'
+          ]) ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'mediaSelections', 'timeline', 'version', 'updatedAt'
+          ])
+        );
+      allow delete: if isSignedIn()
+        && isValidId(projectId)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection 3: /mediaAssets/{assetId}
+    match /mediaAssets/{assetId} {
+      allow get: if isSignedIn()
+        && isValidId(assetId)
+        && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn()
+        && existing().ownerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isValidId(assetId)
+        && isValidMediaAsset(incoming(), assetId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(assetId)
+        && isValidMediaAsset(incoming(), assetId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'tags', 'updatedAt']);
+      allow delete: if isSignedIn()
+        && isValidId(assetId)
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // Collection 4: /hermesMemories/{memoryId}
+    match /hermesMemories/{memoryId} {
+      allow get: if isSignedIn()
+        && isValidId(memoryId)
+        && existing().ownerId == request.auth.uid;
+      allow list: if isSignedIn()
+        && existing().ownerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && isValidId(memoryId)
+        && isValidHermesMemory(incoming(), memoryId)
+        && incoming().status == 'pending-review'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isSignedIn()
+        && isValidId(memoryId)
+        && isValidHermesMemory(incoming(), memoryId)
+        && existing().ownerId == request.auth.uid
+        && existing().status != 'archived'
+        && incoming().ownerId == existing().ownerId
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          (
+            incoming().status in ['promoted', 'archived']
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+          ) ||
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'title', 'summary', 'skillMarkdown', 'tags', 'updatedAt'
+          ])
+        );
+      allow delete: if isSignedIn()
+        && isValidId(memoryId)
+        && existing().ownerId == request.auth.uid;
+    }
+  }
+}

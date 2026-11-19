@@ -16,7 +16,12 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 
-import { getMonarchAdkRuntime } from './agent/adk/monarch-adk-runtime.ts';
+import {
+  ANIMATION_PRESET_SPECS,
+  MUSIC_PRESET_SPECS,
+  OPENMONTAGE_VIDEO_PRESETS,
+  getMonarchAdkRuntime,
+} from './agent/adk/monarch-adk-runtime.ts';
 import { generateArtisticPreProduction } from './agent/skills/artistic-director-suite.ts';
 import {
   applyConversationalTimelinePatch,
@@ -26,19 +31,155 @@ import {
 } from './agent/skills/editor-json-translator.ts';
 import { compilePALIntent } from './agent/skills/pal-video-compiler.ts';
 import { runVideoEnvBootstrap } from './agent/skills/video-env-bootstrap.ts';
+import { runFullMonarchVerification } from './agent/verify/verify-monarch-stack.ts';
 import type {
+  AnimationPresetId,
   ArtisticPreProduction,
   BrandKit,
+  MediaAsset,
+  MusicPresetId,
+  OpenMontageVideoPresetId,
   PALInput,
   PALOutput,
   UniversalVideoTimeline,
   VideoProject,
+  VoiceoverVoiceName,
+  WorkspaceIntegration,
 } from './src/types/monarch.ts';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.join(__dirname, '.monarch-data');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
+const ASSETS_FILE = path.join(DATA_DIR, 'assets.json');
+const INTEGRATIONS_FILE = path.join(DATA_DIR, 'integrations.json');
+
+function ensureDataDirs() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
+
+function createSeedAssets(): MediaAsset[] {
+  return [
+    {
+      id: 'asset-studio-still',
+      name: 'Monarch Studio Architectural Frame.jpg',
+      category: 'image',
+      mimeType: 'image/jpeg',
+      sizeBytes: 248120,
+      url: '/src/assets/images/monarch_hero_studio_1795058371767.jpg',
+      tags: ['brand', 'hero', '16:9'],
+      createdAt: new Date(Date.now() - 86_400_000 * 3).toISOString(),
+    },
+    {
+      id: 'asset-cinema-lens',
+      name: 'Aurora 50mm Anamorphic Product Still.jpg',
+      category: 'image',
+      mimeType: 'image/jpeg',
+      sizeBytes: 194500,
+      url: '/src/assets/images/monarch_showcase_launch_1795058373184.jpg',
+      tags: ['hardware', 'product', 'launch'],
+      createdAt: new Date(Date.now() - 86_400_000 * 2).toISOString(),
+    },
+    {
+      id: 'asset-brand-atelier',
+      name: 'Copenhagen Atelier Storyboard Plate.jpg',
+      category: 'image',
+      mimeType: 'image/jpeg',
+      sizeBytes: 210400,
+      url: '/src/assets/images/monarch_showcase_brandfilm_1795058372638.jpg',
+      tags: ['editorial', 'brand-film'],
+      createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+    },
+  ];
+}
+
+function createSeedIntegrations(publicUrl: string): WorkspaceIntegration[] {
+  return [
+    {
+      id: 'youtube',
+      name: 'YouTube Studio',
+      category: 'social',
+      description: 'Publish finished 16:9 videos and 9:16 Shorts directly to your channel drafts.',
+      connected: false,
+      statusLabel: 'Ready to connect',
+    },
+    {
+      id: 'instagram-reels',
+      name: 'Instagram Reels',
+      category: 'social',
+      description: 'Export vertical 9:16 cuts with synced captions for scheduled Reels publishing.',
+      connected: false,
+      statusLabel: 'Ready to connect',
+    },
+    {
+      id: 'tiktok',
+      name: 'TikTok Creator',
+      category: 'social',
+      description: 'Send vertical product drops directly to your TikTok inbox as drafts.',
+      connected: false,
+      statusLabel: 'Ready to connect',
+    },
+    {
+      id: 'linkedin',
+      name: 'LinkedIn Company Page',
+      category: 'social',
+      description: 'Share launch films and product walkthroughs directly to company feeds.',
+      connected: false,
+      statusLabel: 'Ready to connect',
+    },
+    {
+      id: 'google-drive',
+      name: 'Google Drive & Brand Vault',
+      category: 'storage',
+      description: 'Import logos, font guidelines, and product photography into Content & Files.',
+      connected: true,
+      statusLabel: 'Workspace synced',
+    },
+    {
+      id: 'github-export',
+      name: 'GitHub Video Code Export',
+      category: 'workflow',
+      description: 'Push editable HTML/GSAP and React video templates directly to a repository.',
+      connected: true,
+      statusLabel: 'Ready to export',
+    },
+    {
+      id: 'agent-webhook',
+      name: 'External Agent Connector',
+      category: 'workflow',
+      description: 'Connect external automation tools, Slack bots, or custom agent harnesses via standard endpoints.',
+      connected: true,
+      statusLabel: 'Active',
+      endpointHint: `${publicUrl}/.well-known/agent.json`,
+    },
+  ];
+}
+
+function loadJsonFile<T>(filePath: string, fallbackFactory: () => T): T {
+  try {
+    ensureDataDirs();
+    if (!fs.existsSync(filePath)) {
+      const seed = fallbackFactory();
+      fs.writeFileSync(filePath, JSON.stringify(seed, null, 2), 'utf8');
+      return seed;
+    }
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallbackFactory();
+  }
+}
+
+function saveJsonFile<T>(filePath: string, data: T) {
+  try {
+    ensureDataDirs();
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
+  } catch (err) {
+    console.error(`Failed to persist ${path.basename(filePath)}:`, err);
+  }
+}
 
 function createSeedProjects(): VideoProject[] {
   const monarchBrand: BrandKit = {
@@ -64,26 +205,26 @@ function createSeedProjects(): VideoProject[] {
   const pal1: PALOutput = {
     palVersion: '2.0',
     parseData: {
-      topic: 'Monarch Video Platform Launch Film',
-      explicitInputs: ['30s 16:9 launch reel', 'Monarch Royal Blue & Gold kit', 'Show PAL -> Storyboard -> Live JSON Edit'],
+      topic: 'Monarch Flagship Launch Reel',
+      explicitInputs: ['24s 16:9 launch reel', 'Royal Blue & Satin Gold brand kit', 'Warm studio voiceover'],
       aspectRatio: '16:9',
       durationSec: 24,
       platform: 'Product Launch / Web Hero',
-      brandSummary: 'Calm, regal, consumer-first workspace pairing editorial precision with deterministic motion design.',
+      brandSummary: 'Calm, regal visual language pairing crisp editorial typography with fluid motion.',
     },
     semanticAnalysis: {
-      audiencePersona: 'Creative directors, product marketers, and founder-led teams shipping launch films weekly.',
-      emotionalArc: 'Quiet intrigue -> architectural clarity -> effortless creative mastery -> confident brand resonance.',
+      audiencePersona: 'Founders, creative directors, and product marketing leads shipping launch videos weekly.',
+      emotionalArc: 'Quiet intrigue -> visual clarity -> effortless creative control -> memorable brand close.',
       pacing: 'Crisp & Kinetic',
-      visualGrammar: 'Editorial Swiss typography on deep royal navy planes, hairline satin-gold dividers, deliberate eased reveals.',
+      visualGrammar: 'Editorial display typography on deep royal navy planes, thin satin-gold dividers, smooth eased reveals.',
       projectClassification: 'Product Launch',
     },
     hypothesis: {
       creativeStrategy:
-        'Anchor the reel in deterministic HyperFrames kinetic typography with one Veo 3.1 atmospheric studio establishing shot so every headline, metric, and brand lockup remains editable as structured JSON.',
+        'Lead with crisp motion typography and an atmospheric establishing opening so every headline, caption, and end-card remains instantly editable.',
       selectedRuntime: 'hybrid-veo-hyperframes',
       runtimeRationale:
-        'Combines photorealistic studio B-roll with deterministic Apache-2.0 HyperFrames HTML/GSAP typography and zero per-seat licensing overhead.',
+        'Pairs photorealistic opening footage with crisp, editable brand typography and instant scene-level previews.',
       generativeVideoEngine: 'Google Veo 3.1 (fallback: Runway Gen-4.5 / Kling 4.0 / LTX-2.5)',
       licenseAdvisory: null,
       costEstimate: {
@@ -92,38 +233,38 @@ function createSeedProjects(): VideoProject[] {
         managedCredits: 28,
         renderSecondsEstimate: 34,
         costBreakdown: [
-          { stage: 'PAL & Pre-Production (Gemini 4)', detail: '6,400 est. tokens across 4 stages', usdEstimate: 0.01 },
-          { stage: 'Voiceover & Music Stems', detail: '24s synced VO + chamber string pulse', usdEstimate: 0.06 },
-          { stage: 'Generative B-Roll (Veo 3.1)', detail: '2 hero clips + HyperFrames compositing', usdEstimate: 0.65 },
+          { stage: 'Script & Storyboard Plan', detail: '4 scenes with synced captions', usdEstimate: 0.01 },
+          { stage: 'Studio Voiceover & Underscore', detail: '24s narration + chamber cello score', usdEstimate: 0.06 },
+          { stage: 'Visual Compositing & Export', detail: '1080p 30fps master render', usdEstimate: 0.65 },
         ],
       },
     },
     masterCreativePrompt:
-      'Produce a 24-second 16:9 flagship launch film for Monarch Video in deep Royal Blue (#102D69), Satin Gold (#D4AF37), and crisp Alabaster (#FAFBFD). Open with a calm editorial hook contrasting raw natural language against full studio pre-production, progress through PAL compilation, live storyboard framing, and non-destructive JSON editing, and close on the mirrored-lion Monarch crest with a measured call to action.',
+      'Produce a 24-second 16:9 flagship launch film for Monarch in deep Royal Blue (#102D69), Satin Gold (#D4AF37), and crisp Alabaster (#FAFBFD). Open with a memorable hook, showcase the streamlined storyboard-to-cut workflow, highlight instant single-scene editing, and close on the Monarch crest.',
   };
 
   const pre1: ArtisticPreProduction = {
     projectBrief: {
       title: 'Monarch Flagship Launch Reel',
-      objective: 'Demonstrate how one natural-language brief becomes an editable studio video.',
+      objective: 'Show how one clear sentence turns into a finished, editable brand video.',
       deliverableType: 'Product Launch',
       targetAudience: 'Founders, brand studios, and product marketing leads',
-      primaryCta: 'Direct your first film at monarch.video',
+      primaryCta: 'Start creating at monarch.video',
     },
     templateSelection: {
       templateId: 'editorial-launch',
       templateName: 'Regal Editorial Launch',
-      lowerThirdStyle: 'Hairline gold rule with crisp sans-serif caption',
-      transitionPack: 'Gold wipe & measured cross-dissolve',
-      typographyScale: 'Plus Jakarta Sans 80px display / DM Sans 30px body',
+      lowerThirdStyle: 'Thin satin-gold rule with clean sans-serif caption',
+      transitionPack: 'Gold wipe & smooth cross-dissolve',
+      typographyScale: 'Plus Jakarta Sans display / DM Sans body',
     },
     videoTreatment: {
-      logline: 'One sentence enters; an entire creative department compiles, directs, and renders on command.',
-      visualMood: 'Serene architectural authority—fluted navy surfaces, crisp alabaster plates, restrained gold geometry.',
-      lightingAndMotion: 'Soft directional skylight with smooth power3.out typography rises and zero harsh bounce.',
-      soundscapeAndMusic: 'Minimalist cello ostinato at 96 BPM with soft analog felt piano and muted air-whoosh transitions.',
+      logline: 'One idea enters; a complete storyboard, voiceover, and editable brand cut emerges in minutes.',
+      visualMood: 'Serene architectural authority—fluted navy surfaces, bright alabaster plates, restrained gold geometry.',
+      lightingAndMotion: 'Soft directional skylight with smooth upward typography reveals and balanced timing.',
+      soundscapeAndMusic: 'Minimalist cello ostinato at 96 BPM with soft felt piano and subtle air transitions.',
       voiceoverDirection: 'Composed, warm, unhurried documentary narrator with crisp diction.',
-      narrativeHook: 'Great videos are not generated by chance—they are directed.',
+      narrativeHook: 'Great videos are not left to chance—they are directed.',
     },
     storyboard: [
       {
@@ -131,8 +272,8 @@ function createSeedProjects(): VideoProject[] {
         sceneNumber: 1,
         title: 'The Opening Hook',
         durationSec: 6,
-        visualFraming: 'Full-bleed deep royal blue architectural canvas with centered kinetic headline and subtle gold hairline.',
-        motionChoreography: 'Headline rises 32px with power3.out easing; gold rule draws left-to-right at 0.8s.',
+        visualFraming: 'Full-bleed deep royal blue canvas with centered kinetic headline and subtle gold hairline.',
+        motionChoreography: 'Headline rises smoothly with eased deceleration; gold rule sweeps left-to-right.',
         assetSource: 'veo-3.1',
         visualPrompt: 'Serene architectural motion studio bathed in soft skylight, royal blue fluted paneling and subtle gold light refraction.',
         onScreenText: 'Great films are directed, not rolled.',
@@ -141,38 +282,38 @@ function createSeedProjects(): VideoProject[] {
       {
         sceneId: 'scene-2',
         sceneNumber: 2,
-        title: 'PAL & Artistic Pre-Production',
+        title: 'Storyboard & Script in Sync',
         durationSec: 6,
-        visualFraming: 'Crisp alabaster editorial split showing treatment, storyboard frames, and synced voiceover timecodes.',
+        visualFraming: 'Crisp alabaster editorial split showing visual scenes and timed narration.',
         motionChoreography: 'Clean horizontal wipe revealing structured scene cards in crisp cadence.',
         assetSource: 'programmatic-html',
         visualPrompt: 'Editorial alabaster layout with royal blue typography and thin metallic gold timeline track.',
-        onScreenText: 'Treatment, storyboard, and script in sync.',
-        subText: 'Four-stage PAL compilation locks brand palette, pacing, and voice before a single frame renders.',
+        onScreenText: 'Storyboard, script, and voice in sync.',
+        subText: 'Lock your brand palette, pacing, and narration before exporting a single frame.',
       },
       {
         sceneId: 'scene-3',
         sceneNumber: 3,
-        title: 'Non-Destructive Timeline JSON',
+        title: 'Edit One Scene Instantly',
         durationSec: 6,
-        visualFraming: 'Midnight navy programmatic editor frame highlighting a single scene color and timing diff.',
-        motionChoreography: 'Scale-settle focus on scene 2 patch while neighboring scenes remain locked.',
+        visualFraming: 'Midnight navy canvas highlighting a single scene update while other cuts stay locked.',
+        motionChoreography: 'Scale-settle focus on scene copy while neighboring scenes remain untouched.',
         assetSource: 'programmatic-html',
-        visualPrompt: 'Deep navy code-to-motion stage showing HyperFrames GSAP and Remotion TSX deterministic compilation.',
-        onScreenText: 'Edit one scene. Preserve the rest.',
-        subText: 'Conversational diffs patch canonical Timeline JSON and re-compile to HyperFrames or Remotion.',
+        visualPrompt: 'Deep navy motion stage demonstrating instant single-scene edits and color swaps.',
+        onScreenText: 'Edit one scene. Keep the rest.',
+        subText: 'Ask for a tighter headline, new voice, or warmer look without starting over.',
       },
       {
         sceneId: 'scene-4',
         sceneNumber: 4,
         title: 'Monarch Crest Outro',
         durationSec: 6,
-        visualFraming: 'Regal centered Monarch mirrored-lion crest in satin gold over royal blue velvet gradient.',
+        visualFraming: 'Regal centered Monarch mirrored-lion crest in satin gold over royal blue gradient.',
         motionChoreography: 'Slow cross-dissolve into crest lockup with measured gold underline CTA.',
         assetSource: 'programmatic-html',
         visualPrompt: 'Minimalist luxury end-card in Royal Blue #102D69 with Satin Gold #D4AF37 brand insignia.',
         onScreenText: 'Monarch Video',
-        subText: 'Direct your first film at monarch.video',
+        subText: 'Start creating at monarch.video',
       },
     ],
     scriptAndCueSheet: [
@@ -184,15 +325,15 @@ function createSeedProjects(): VideoProject[] {
         voiceover: 'Great films are never accidental. They begin with clear intent, deliberate pacing, and unmistakable taste.',
         kineticHeadline: 'Great films are directed, not rolled.',
         sfxCue: 'Warm low chime + subtle room tone',
-        musicCue: 'Cello ostinato enters at -16dB',
+        musicCue: 'Cello ostinato enters at -14dB',
       },
       {
         timecode: '00:06 - 00:12',
         startSec: 6,
         endSec: 12,
         sceneId: 'scene-2',
-        voiceover: 'Describe your vision in plain English. Monarch drafts the treatment, storyboard, and time-coded script before rendering.',
-        kineticHeadline: 'Treatment, storyboard, and script in sync.',
+        voiceover: 'Describe your vision in plain English. Monarch drafts your treatment, storyboard, and timed voiceover before export.',
+        kineticHeadline: 'Storyboard, script, and voice in sync.',
         sfxCue: 'Crisp paper-turn transition',
         musicCue: 'Felt piano motif layers in',
       },
@@ -201,8 +342,8 @@ function createSeedProjects(): VideoProject[] {
         startSec: 12,
         endSec: 18,
         sceneId: 'scene-3',
-        voiceover: 'Every scene compiles into editable Timeline JSON—so changing a headline, color, or beat never breaks your cut.',
-        kineticHeadline: 'Edit one scene. Preserve the rest.',
+        voiceover: 'Every scene stays cleanly editable—so changing a headline, color, or beat never breaks your cut.',
+        kineticHeadline: 'Edit one scene. Keep the rest.',
         sfxCue: 'Precision mechanical detent click',
         musicCue: 'Strings swell cleanly',
       },
@@ -211,7 +352,7 @@ function createSeedProjects(): VideoProject[] {
         startSec: 18,
         endSec: 24,
         sceneId: 'scene-4',
-        voiceover: 'Monarch Video. Bring your own keys or run through our gateway—and ship studio work in minutes.',
+        voiceover: 'Monarch Video. Direct, refine, and publish studio-quality work in minutes.',
         kineticHeadline: 'Monarch Video',
         sfxCue: 'Soft resonant brass tail',
         musicCue: 'Resolve on major ninth chord',
@@ -229,25 +370,25 @@ function createSeedProjects(): VideoProject[] {
   const pal2: PALOutput = {
     palVersion: '2.0',
     parseData: {
-      topic: 'Aurora Cine 50mm Anamorphic Hardware Launch',
-      explicitInputs: ['18s 9:16 social product drop', 'Matte navy & brushed brass hardware aesthetic'],
+      topic: 'Aurora Cine 50mm Vertical Drop',
+      explicitInputs: ['18s 9:16 vertical social product drop', 'Matte navy & brushed brass hardware aesthetic'],
       aspectRatio: '9:16',
       durationSec: 18,
       platform: 'Instagram Reels / YouTube Shorts',
-      brandSummary: 'Precision German optical craft presented with restraint and tactile material focus.',
+      brandSummary: 'Precision optical craft presented with restraint and tactile material focus.',
     },
     semanticAnalysis: {
       audiencePersona: 'Cinematographers, commercial DPs, and independent studio owners.',
       emotionalArc: 'Tactile curiosity -> optical authority -> collector desire.',
       pacing: 'High-Tempo Hook',
-      visualGrammar: 'Vertical macro framing paired with Swiss technical callouts in tabular monospace.',
+      visualGrammar: 'Vertical macro framing paired with crisp technical callouts.',
       projectClassification: 'Ad',
     },
     hypothesis: {
-      creativeStrategy: 'Use HyperFrames kinetic vertical overlays over Veo 3.1 macro lens lighting sweeps for crisp 9:16 retention.',
+      creativeStrategy: 'Use kinetic vertical overlays over crisp lighting sweeps for strong 9:16 retention.',
       selectedRuntime: 'hyperframes',
-      runtimeRationale: 'Apache-2.0 HyperFrames delivers ultra-crisp 1080x1920 vertical typography and sub-second preview edits.',
-      generativeVideoEngine: 'Programmatic HTML/GSAP + Veo 3.1 optional macro B-roll',
+      runtimeRationale: 'Delivers razor-sharp 1080x1920 vertical typography and sub-second preview edits.',
+      generativeVideoEngine: 'Programmatic Motion + optional macro B-roll',
       licenseAdvisory: null,
       costEstimate: {
         estimatedTokens: 4900,
@@ -255,14 +396,14 @@ function createSeedProjects(): VideoProject[] {
         managedCredits: 12,
         renderSecondsEstimate: 9,
         costBreakdown: [
-          { stage: 'PAL & Pre-Production (Gemini 4)', detail: '4,900 est. tokens', usdEstimate: 0.01 },
+          { stage: 'Storyboard & Script', detail: '3 vertical scenes', usdEstimate: 0.01 },
           { stage: 'Voiceover & Music Stems', detail: '18s synced narration + percussive bed', usdEstimate: 0.05 },
-          { stage: 'Programmatic Motion Render', detail: '3 deterministic vertical scenes', usdEstimate: 0.08 },
+          { stage: 'Motion Render', detail: '1080x1920 vertical export', usdEstimate: 0.08 },
         ],
       },
     },
     masterCreativePrompt:
-      'Create an 18-second 9:16 vertical product drop for the Aurora Cine 50mm T1.5 Anamorphic lens in matte navy (#0E244F) and brushed brass (#D4AF37). Keep pacing tight with 3 crisp vertical scenes highlighting optical clarity, brass focus gears, and limited first-batch reservation.',
+      'Create an 18-second 9:16 vertical product drop for the Aurora Cine 50mm T1.5 Anamorphic lens in matte navy (#0E244F) and brushed brass (#D4AF37).',
   };
 
   const pre2: ArtisticPreProduction = {
@@ -276,14 +417,14 @@ function createSeedProjects(): VideoProject[] {
     templateSelection: {
       templateId: 'social-vertical-drop',
       templateName: 'Vertical Hardware Drop',
-      lowerThirdStyle: 'Tabular monospace focal-length spec bar',
+      lowerThirdStyle: 'Tabular focal-length spec bar',
       transitionPack: 'Crisp cut & brass wipe',
-      typographyScale: 'Plus Jakarta Sans 72px vertical stack',
+      typographyScale: 'Plus Jakarta Sans vertical stack',
     },
     videoTreatment: {
       logline: 'Machined brass meets anamorphic warmth in a 50mm T1.5 prime built to outlast trends.',
       visualMood: 'Honed dark slate, brushed brass warmth, razor-sharp optical precision.',
-      lightingAndMotion: 'Golden rim sweeps with tight spring-damped title locks.',
+      lightingAndMotion: 'Golden rim sweeps with tight damped title locks.',
       soundscapeAndMusic: 'Tactile focus-ring clicks synced to minimalist percussive pulse at 120 BPM.',
       voiceoverDirection: 'Understated, technical, confident.',
       narrativeHook: 'Glass that bends light without bending truth.',
@@ -372,8 +513,8 @@ function createSeedProjects(): VideoProject[] {
       id: 'proj-monarch-launch',
       title: 'Monarch Flagship Launch Reel',
       prompt:
-        'Create a 24-second 16:9 launch film for Monarch Video in our Royal Blue and Satin Gold brand kit showing how one plain-English prompt compiles into a treatment, storyboard, script, and editable Timeline JSON.',
-      status: 'compiled',
+        'Create a 24-second 16:9 launch film for Monarch Video in Royal Blue and Satin Gold showing how one plain-English brief turns into a finished, editable video.',
+      status: 'published',
       createdAt: new Date(Date.now() - 86_400_000 * 2).toISOString(),
       updatedAt: new Date(Date.now() - 3_600_000 * 4).toISOString(),
       version: 2,
@@ -382,16 +523,36 @@ function createSeedProjects(): VideoProject[] {
       runtime: 'hybrid-veo-hyperframes',
       routingMode: 'managed-gateway',
       brandKit: monarchBrand,
+      mediaSelections: {
+        voiceover: {
+          voiceName: 'Kore',
+          style: 'Warm, composed, unhurried documentary narrator',
+          model: 'gemini-3.8-flash-lite-tts',
+          clips: [],
+        },
+        audio: {
+          musicPreset: 'cello-ostinato',
+          bpm: 96,
+          musicVolume: 0.24,
+          duckingDb: -14,
+          sfxEnabled: true,
+        },
+        animationPreset: 'kinetic-editorial',
+        videoPreset: 'royal-architectural',
+      },
       pal: pal1,
       preProduction: pre1,
       timeline: timeline1,
-      compiled: compileAllTargets(timeline1),
+      compiled: compileAllTargets(timeline1, {
+        animationPreset: 'kinetic-editorial',
+        videoPreset: 'royal-architectural',
+      }),
       editHistory: [
         {
           version: 2,
           timestamp: new Date(Date.now() - 3_600_000 * 4).toISOString(),
-          instruction: 'Tighten scene 1 headline and emphasize non-destructive editing in scene 3.',
-          diffSummary: 'Updated headline copy in scene-1 and scene-3 while preserving scene-2 and scene-4 timings.',
+          instruction: 'Tighten scene 1 headline and emphasize single-scene editing in scene 3.',
+          diffSummary: 'Updated headline copy in scene-1 and scene-3 while preserving scene-2 and scene-4.',
           patchedSceneIds: ['scene-1', 'scene-3'],
         },
       ],
@@ -410,51 +571,45 @@ function createSeedProjects(): VideoProject[] {
       runtime: 'hyperframes',
       routingMode: 'byok-server',
       brandKit: auroraBrand,
+      mediaSelections: {
+        voiceover: {
+          voiceName: 'Fenrir',
+          style: 'Understated, technical, confident hardware narrator',
+          model: 'gemini-3.8-flash-lite-tts',
+          clips: [],
+        },
+        audio: {
+          musicPreset: 'minimal-pulse',
+          bpm: 120,
+          musicVolume: 0.24,
+          duckingDb: -14,
+          sfxEnabled: true,
+        },
+        animationPreset: 'satin-gold-wipe',
+        videoPreset: 'cinema-lens-noir',
+      },
       pal: pal2,
       preProduction: pre2,
       timeline: timeline2,
-      compiled: compileAllTargets(timeline2),
+      compiled: compileAllTargets(timeline2, {
+        animationPreset: 'satin-gold-wipe',
+        videoPreset: 'cinema-lens-noir',
+      }),
       editHistory: [],
     },
   ];
-}
-
-function loadProjects(): VideoProject[] {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(PROJECTS_FILE)) {
-      const seeds = createSeedProjects();
-      fs.writeFileSync(PROJECTS_FILE, JSON.stringify(seeds, null, 2), 'utf8');
-      return seeds;
-    }
-    const raw = fs.readFileSync(PROJECTS_FILE, 'utf8');
-    const parsed = JSON.parse(raw) as VideoProject[];
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : createSeedProjects();
-  } catch {
-    return createSeedProjects();
-  }
-}
-
-function saveProjects(projects: VideoProject[]) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), 'utf8');
-  } catch (err) {
-    console.error('Failed to persist projects:', err);
-  }
 }
 
 function readSkillBundleFiles(): Record<string, string> {
   const skillRoot = path.join(__dirname, 'skills/monarch-video');
   const files = [
     'SKILL.md',
+    'SOUL.md',
     'scripts/bootstrap-env.sh',
     'references/timeline-schema.md',
     'references/rostr-agent-stack.md',
+    'references/openmontage-pipelines.md',
+    'references/creative-datasets.md',
   ];
   const out: Record<string, string> = {};
   for (const rel of files) {
@@ -467,15 +622,22 @@ function readSkillBundleFiles(): Record<string, string> {
 }
 
 async function startServer() {
+  ensureDataDirs();
   const app = express();
-  app.use(express.json({ limit: '4mb' }));
+  app.use(express.json({ limit: '16mb' }));
+  app.use('/uploads', express.static(UPLOADS_DIR));
 
-  const publicUrl = process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL'
-    ? process.env.APP_URL
-    : `http://localhost:${PORT}`;
+  const publicUrl =
+    process.env.APP_URL && process.env.APP_URL !== 'MY_APP_URL'
+      ? process.env.APP_URL
+      : `http://localhost:${PORT}`;
 
   const adkRuntime = getMonarchAdkRuntime(publicUrl);
-  let projects = loadProjects();
+  let projects = loadJsonFile<VideoProject[]>(PROJECTS_FILE, createSeedProjects);
+  let assets = loadJsonFile<MediaAsset[]>(ASSETS_FILE, createSeedAssets);
+  let integrations = loadJsonFile<WorkspaceIntegration[]>(INTEGRATIONS_FILE, () =>
+    createSeedIntegrations(publicUrl)
+  );
 
   // --- ROSTR Open Protocol Endpoints ---
   app.get('/.well-known/agent.json', (_req, res) => {
@@ -527,9 +689,29 @@ async function startServer() {
     return res.json(run);
   });
 
-  // --- Agent Bootstrap, Config, Skill Bundle & Traces ---
+  app.post('/api/rostr/npao', async (req, res) => {
+    try {
+      const result = await adkRuntime.npaoHarness.run({
+        intent: String(req.body?.intent || ''),
+        idempotencyKey: req.body?.idempotencyKey ?? null,
+        sessionId: req.body?.sessionId ?? null,
+      });
+      return res.json(result);
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // --- Agent Diagnostics, Verification, Hermes & 6th-Agent Scaffold ---
   app.get('/api/agent/bootstrap', (_req, res) => {
-    res.json(runVideoEnvBootstrap());
+    res.json({
+      ...runVideoEnvBootstrap(),
+      presets: {
+        music: MUSIC_PRESET_SPECS,
+        animations: ANIMATION_PRESET_SPECS,
+        video: OPENMONTAGE_VIDEO_PRESETS,
+      },
+    });
   });
 
   app.get('/api/agent/config', (_req, res) => {
@@ -541,6 +723,62 @@ async function startServer() {
 
   app.get('/api/agent/traces', (_req, res) => {
     res.json({ spans: adkRuntime.traceLogger.getRecentSpans(50) });
+  });
+
+  app.post('/api/agent/verify', async (_req, res) => {
+    try {
+      const report = await runFullMonarchVerification(adkRuntime);
+      return res.json(report);
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/agent/scaffold', (req, res) => {
+    try {
+      const blueprint = adkRuntime.metaBuilder.compileBlueprint({
+        name: String(req.body?.name || 'Monarch Video Agent'),
+        mission: String(
+          req.body?.mission ||
+            'Compile natural language into deterministic HyperFrames, OpenMontage, and Remotion video productions.'
+        ),
+        tools: Array.isArray(req.body?.mcpServers)
+          ? req.body.mcpServers
+          : ['hyperframes', 'openmontage', 'google-drive', 'github'],
+        publicUrl,
+      });
+      return res.json(blueprint);
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.get('/api/agent/hermes/state', (_req, res) => {
+    res.json(adkRuntime.hermes.getState());
+  });
+
+  app.post('/api/agent/hermes/reflect', async (req, res) => {
+    try {
+      const result = await adkRuntime.hermes.reflectAndSynthesize({
+        contextSummary: req.body?.contextSummary,
+        projectId: req.body?.projectId,
+      });
+      return res.json(result);
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/agent/hermes/promote', async (req, res) => {
+    try {
+      const id = String(req.body?.id || '');
+      const action = req.body?.action === 'archived' ? 'archived' : 'promoted';
+      const updated = await adkRuntime.hermes.promoteMemory(id, action);
+      if (!updated) return res.status(404).json({ error: 'Memory item not found.' });
+      return res.json({ item: updated, stats: adkRuntime.hermes.getState().stats });
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // --- Google ADK Interactive Runner & Artifact Service ---
@@ -556,8 +794,7 @@ async function startServer() {
       const result = await adkRuntime.runAdkAdvisor({ userId, sessionId, prompt });
       return res.json(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return res.status(500).json({ error: msg });
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -574,6 +811,166 @@ async function startServer() {
     }
   });
 
+  // --- Direct Invocation of Any of the 8 Registered Creative Tools ---
+  app.post('/api/studio/tool/:toolName', async (req, res) => {
+    try {
+      const result = await adkRuntime.invokeCreativeTool(req.params.toolName, req.body || {});
+      return res.json(result);
+    } catch (err) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // --- Real Gemini 3.8 TTS Human Voiceover Synthesis (select_voiceover) ---
+  app.post('/api/studio/voiceover', async (req, res) => {
+    try {
+      const { scenes, text, voiceName, style, highFidelity } = req.body as {
+        scenes?: Array<{ sceneId: string; text: string }>;
+        text?: string;
+        voiceName?: VoiceoverVoiceName;
+        style?: string;
+        highFidelity?: boolean;
+      };
+
+      const selectedVoice: VoiceoverVoiceName = voiceName || 'Kore';
+      const selectedStyle = style || 'Warm, composed, unhurried studio narrator';
+
+      if (Array.isArray(scenes) && scenes.length > 0) {
+        const clips = [];
+        for (const s of scenes.slice(0, 8)) {
+          const result = (await adkRuntime.invokeCreativeTool('select_voiceover', {
+            text: s.text,
+            voiceName: selectedVoice,
+            style: selectedStyle,
+            highFidelity: Boolean(highFidelity),
+          })) as {
+            voiceName: VoiceoverVoiceName;
+            model: string;
+            mimeType: string;
+            audioDataUrl: string;
+          };
+          clips.push({
+            sceneId: s.sceneId,
+            text: s.text,
+            voiceName: result.voiceName,
+            style: selectedStyle,
+            mimeType: result.mimeType,
+            audioDataUrl: result.audioDataUrl,
+            generatedAt: new Date().toISOString(),
+          });
+        }
+        return res.json({ voiceName: selectedVoice, style: selectedStyle, clips });
+      }
+
+      if (!text?.trim()) {
+        return res.status(400).json({ error: 'Provide either scenes[] or text for voiceover synthesis.' });
+      }
+
+      const single = await adkRuntime.invokeCreativeTool('select_voiceover', {
+        text: text.trim(),
+        voiceName: selectedVoice,
+        style: selectedStyle,
+        highFidelity: Boolean(highFidelity),
+      });
+      return res.json(single);
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // --- Media Preset Selection (select_audio, select_animations, select_video + live recompile) ---
+  app.post('/api/studio/media-select', async (req, res) => {
+    try {
+      const { timeline, musicPreset, animationPreset, videoPreset } = req.body as {
+        timeline?: UniversalVideoTimeline;
+        musicPreset?: MusicPresetId;
+        animationPreset?: AnimationPresetId;
+        videoPreset?: OpenMontageVideoPresetId;
+      };
+
+      const [audioSpec, animSpec, videoSpec] = await Promise.all([
+        adkRuntime.invokeCreativeTool('select_audio', { musicPreset: musicPreset || 'cello-ostinato' }),
+        adkRuntime.invokeCreativeTool('select_animations', {
+          animationPreset: animationPreset || 'kinetic-editorial',
+        }),
+        adkRuntime.invokeCreativeTool('select_video', {
+          videoPreset: videoPreset || 'royal-architectural',
+        }),
+      ]);
+
+      if (!timeline) {
+        return res.json({ audioSpec, animSpec, videoSpec });
+      }
+
+      const presetLook =
+        OPENMONTAGE_VIDEO_PRESETS[videoPreset || 'royal-architectural'] ||
+        OPENMONTAGE_VIDEO_PRESETS['royal-architectural'];
+      const musicMeta =
+        MUSIC_PRESET_SPECS[musicPreset || 'cello-ostinato'] || MUSIC_PRESET_SPECS['cello-ostinato'];
+
+      const updatedTimeline: UniversalVideoTimeline = {
+        ...timeline,
+        animationPreset: animationPreset || timeline.animationPreset || 'kinetic-editorial',
+        videoPreset: videoPreset || timeline.videoPreset || 'royal-architectural',
+        brandKit: {
+          ...timeline.brandKit,
+          primaryColor: presetLook.primaryColor,
+          accentColor: presetLook.accentColor,
+          surfaceColor: presetLook.surfaceColor,
+        },
+        audioTracks: {
+          ...timeline.audioTracks,
+          music: {
+            ...timeline.audioTracks.music,
+            presetId: musicPreset || 'cello-ostinato',
+            bpm: musicMeta.bpm,
+            style: musicMeta.name,
+            mood: musicMeta.mood,
+          },
+        },
+        scenes: timeline.scenes.map((scene, idx) => {
+          const isLight =
+            (videoPreset === 'alabaster-editorial' && idx < timeline.scenes.length - 1) ||
+            (idx > 0 && idx < timeline.scenes.length - 1 && idx % 2 === 1);
+          const nextPrimary = isLight ? presetLook.surfaceColor : presetLook.primaryColor;
+          const nextSecondary = isLight ? '#EEF3FA' : presetLook.secondaryColor;
+          const headlineColor = isLight ? '#0F172A' : '#FFFFFF';
+          const subColor = isLight ? '#475569' : '#CBD5E1';
+          return {
+            ...scene,
+            background: {
+              ...scene.background,
+              primaryColor: nextPrimary,
+              secondaryColor: nextSecondary,
+              accentGlow: presetLook.accentColor,
+            },
+            elements: scene.elements.map((el) => {
+              if (el.type === 'headline') return { ...el, color: headlineColor };
+              if (el.type === 'subheadline' || el.type === 'cta-card') return { ...el, color: subColor };
+              if (el.type === 'kicker') return { ...el, color: presetLook.accentColor };
+              return el;
+            }),
+          };
+        }),
+      };
+
+      const compiled = compileAllTargets(updatedTimeline, {
+        animationPreset: updatedTimeline.animationPreset,
+        videoPreset: updatedTimeline.videoPreset,
+      });
+
+      return res.json({
+        timeline: updatedTimeline,
+        compiled,
+        audioSpec,
+        animSpec,
+        videoSpec,
+      });
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   // --- Monarch Video Studio Pipeline Endpoints ---
   app.post('/api/studio/pal', async (req, res) => {
     const input = req.body as PALInput & { projectId?: string };
@@ -587,12 +984,12 @@ async function startServer() {
     try {
       if (!input.prompt || !input.prompt.trim()) {
         trace.finish('BLOCKED', { reason: 'Empty prompt' });
-        return res.status(400).json({ error: 'Please describe your video idea before compiling PAL intent.' });
+        return res.status(400).json({ error: 'Please describe your video idea first.' });
       }
 
       const contextMatches = await adkRuntime.substrate.query(
-        `${input.prompt} ${input.brandKit?.brandName || ''}`,
-        { topK: 3 }
+        `${input.prompt} ${input.brandKit?.brandName || ''} storyboard pacing`,
+        { topK: 5 }
       );
       const pal = await compilePALIntent(
         input,
@@ -613,7 +1010,7 @@ async function startServer() {
         intent: input.prompt,
         outcome: 'PAL_COMPILED',
         success: true,
-        summary: `PAL compiled for "${pal.parseData.topic}" (${pal.hypothesis.selectedRuntime}, ${input.aspectRatio}, ${input.durationSec}s).`,
+        summary: `Compiled plan for "${pal.parseData.topic}" (${pal.hypothesis.selectedRuntime}, ${input.aspectRatio}, ${input.durationSec}s).`,
         tags: ['pal', pal.hypothesis.selectedRuntime],
       });
 
@@ -641,7 +1038,7 @@ async function startServer() {
 
     try {
       if (!pal || !brandKit) {
-        return res.status(400).json({ error: 'Approved PAL output and Brand Kit are required.' });
+        return res.status(400).json({ error: 'Approved plan and Brand Kit are required.' });
       }
       const preProduction = await generateArtisticPreProduction({
         pal,
@@ -668,12 +1065,22 @@ async function startServer() {
   });
 
   app.post('/api/studio/compile', async (req, res) => {
-    const { pal, preProduction, brandKit, timeline: directTimeline, projectId } = req.body as {
+    const {
+      pal,
+      preProduction,
+      brandKit,
+      timeline: directTimeline,
+      projectId,
+      animationPreset,
+      videoPreset,
+    } = req.body as {
       pal?: PALOutput;
       preProduction?: ArtisticPreProduction;
       brandKit?: BrandKit;
       timeline?: UniversalVideoTimeline;
       projectId?: string;
+      animationPreset?: AnimationPresetId;
+      videoPreset?: OpenMontageVideoPresetId;
     };
 
     const trace = adkRuntime.traceLogger.startTrace('skill.editor_json_translator', {
@@ -688,19 +1095,22 @@ async function startServer() {
           : null);
 
       if (!timeline) {
-        return res.status(400).json({ error: 'Provide either approved pre-production artifacts or a Timeline JSON.' });
+        return res.status(400).json({ error: 'Provide either storyboard details or a Timeline JSON.' });
       }
 
       const validation = validateUniversalTimeline(timeline);
       if (!validation.valid) {
         trace.finish('BLOCKED', { errors: validation.errors });
         return res.status(400).json({
-          error: `Timeline JSON schema validation failed: ${validation.errors.join(' ')}`,
+          error: `Timeline validation failed: ${validation.errors.join(' ')}`,
           validation,
         });
       }
 
-      const compiled = compileAllTargets(timeline);
+      const compiled = compileAllTargets(timeline, {
+        animationPreset: animationPreset || timeline.animationPreset || 'kinetic-editorial',
+        videoPreset: videoPreset || timeline.videoPreset || 'royal-architectural',
+      });
       const sessionId = projectId || `proj-${crypto.randomUUID().slice(0, 8)}`;
 
       await Promise.all([
@@ -753,7 +1163,7 @@ async function startServer() {
 
     try {
       if (!timeline || !instruction?.trim()) {
-        return res.status(400).json({ error: 'Timeline JSON and edit instruction are required.' });
+        return res.status(400).json({ error: 'Timeline and edit instruction are required.' });
       }
 
       const patchResult = await applyConversationalTimelinePatch({ timeline, instruction });
@@ -789,7 +1199,7 @@ async function startServer() {
     }
   });
 
-  // --- Persistent Project Library ---
+  // --- Persistent Project Library (Drafts & Published) ---
   app.get('/api/studio/projects', (_req, res) => {
     res.json({ projects });
   });
@@ -799,20 +1209,122 @@ async function startServer() {
     if (!incoming || !incoming.id) {
       return res.status(400).json({ error: 'Valid project object with id is required.' });
     }
+    const stamped: VideoProject = { ...incoming, updatedAt: new Date().toISOString() };
     const idx = projects.findIndex((p) => p.id === incoming.id);
     if (idx >= 0) {
-      projects[idx] = { ...incoming, updatedAt: new Date().toISOString() };
+      projects[idx] = stamped;
     } else {
-      projects = [{ ...incoming, updatedAt: new Date().toISOString() }, ...projects];
+      projects = [stamped, ...projects];
     }
-    saveProjects(projects);
-    return res.json({ project: incoming, total: projects.length });
+    saveJsonFile(PROJECTS_FILE, projects);
+    return res.json({ project: stamped, total: projects.length });
+  });
+
+  app.post('/api/studio/projects/:id/publish', (req, res) => {
+    const target = projects.find((p) => p.id === req.params.id);
+    if (!target) return res.status(404).json({ error: 'Project not found.' });
+    const nextStatus = req.body?.published === false ? 'compiled' : 'published';
+    target.status = nextStatus;
+    target.updatedAt = new Date().toISOString();
+    saveJsonFile(PROJECTS_FILE, projects);
+    return res.json({ project: target });
   });
 
   app.delete('/api/studio/projects/:id', (req, res) => {
     projects = projects.filter((p) => p.id !== req.params.id);
-    saveProjects(projects);
+    saveJsonFile(PROJECTS_FILE, projects);
     return res.json({ ok: true, total: projects.length });
+  });
+
+  // --- Content & Files Asset Hosting / Upload API ---
+  app.get('/api/assets', (_req, res) => {
+    res.json({ assets });
+  });
+
+  app.post('/api/assets', (req, res) => {
+    try {
+      const { name, mimeType, category, dataBase64, tags } = req.body as {
+        name?: string;
+        mimeType?: string;
+        category?: MediaAsset['category'];
+        dataBase64?: string;
+        tags?: string[];
+      };
+
+      if (!name || !dataBase64) {
+        return res.status(400).json({ error: 'File name and dataBase64 payload are required.' });
+      }
+
+      const rawBase64 = dataBase64.includes(',') ? dataBase64.split(',')[1] : dataBase64;
+      const buf = Buffer.from(rawBase64, 'base64');
+      if (buf.length > 10 * 1024 * 1024) {
+        return res.status(413).json({ error: 'Uploaded file exceeds 10 MB workspace limit.' });
+      }
+
+      const id = `asset-${crypto.randomUUID().slice(0, 8)}`;
+      const safeExt = path.extname(name).replace(/[^a-zA-Z0-9.]/g, '') || '.bin';
+      const diskFilename = `${id}${safeExt}`;
+      ensureDataDirs();
+      fs.writeFileSync(path.join(UPLOADS_DIR, diskFilename), buf);
+
+      const resolvedCategory: MediaAsset['category'] =
+        category ||
+        (mimeType?.startsWith('audio/')
+          ? 'audio'
+          : mimeType?.startsWith('image/')
+            ? name.toLowerCase().includes('logo')
+              ? 'logo'
+              : 'image'
+            : 'document');
+
+      const newAsset: MediaAsset = {
+        id,
+        name: name.slice(0, 180),
+        category: resolvedCategory,
+        mimeType: mimeType || 'application/octet-stream',
+        sizeBytes: buf.length,
+        url: `/uploads/${diskFilename}`,
+        tags: Array.isArray(tags) ? tags.slice(0, 8) : [resolvedCategory],
+        createdAt: new Date().toISOString(),
+      };
+
+      assets = [newAsset, ...assets];
+      saveJsonFile(ASSETS_FILE, assets);
+      return res.json({ asset: newAsset });
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.delete('/api/assets/:id', (req, res) => {
+    const existing = assets.find((a) => a.id === req.params.id);
+    if (existing?.url.startsWith('/uploads/')) {
+      const fileOnDisk = path.join(UPLOADS_DIR, path.basename(existing.url));
+      if (fs.existsSync(fileOnDisk)) {
+        try {
+          fs.unlinkSync(fileOnDisk);
+        } catch {
+          // Ignore file unlink race
+        }
+      }
+    }
+    assets = assets.filter((a) => a.id !== req.params.id);
+    saveJsonFile(ASSETS_FILE, assets);
+    return res.json({ ok: true, total: assets.length });
+  });
+
+  // --- Workspace Integrations & Connectors ---
+  app.get('/api/integrations', (_req, res) => {
+    res.json({ integrations });
+  });
+
+  app.post('/api/integrations/:id/toggle', (req, res) => {
+    const item = integrations.find((i) => i.id === req.params.id);
+    if (!item) return res.status(404).json({ error: 'Integration not found.' });
+    item.connected = !item.connected;
+    item.statusLabel = item.connected ? 'Connected' : 'Ready to connect';
+    saveJsonFile(INTEGRATIONS_FILE, integrations);
+    return res.json({ integration: item, integrations });
   });
 
   // --- Frontend Serving (Vite Middleware in Dev / Static dist in Production) ---
@@ -831,7 +1343,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Monarch Video (Google ADK + ROSTR Stack) listening on http://0.0.0.0:${PORT}`);
+    console.log(`Monarch Video server listening on http://0.0.0.0:${PORT}`);
   });
 }
 

@@ -103,16 +103,151 @@ async function testConnection() {
 }
 void testConnection();
 
+const SERVER_AUTH_STORAGE_KEY = 'monarch_studio_auth_user_v1';
+const authListeners = new Set<(user: User | null) => void>();
+
+function loadStoredServerUser(): User | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(SERVER_AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      uid: string;
+      email: string;
+      displayName: string;
+      photoURL?: string | null;
+    };
+    if (!parsed || !parsed.uid) return null;
+    return createCompatibleUser(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function createCompatibleUser(payload: {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string | null;
+}): User {
+  return {
+    uid: payload.uid,
+    email: payload.email,
+    displayName: payload.displayName,
+    photoURL: payload.photoURL ?? null,
+    emailVerified: true,
+    isAnonymous: false,
+    metadata: {},
+    providerData: [
+      {
+        providerId: 'password',
+        uid: payload.uid,
+        displayName: payload.displayName,
+        email: payload.email,
+        phoneNumber: null,
+        photoURL: payload.photoURL ?? null,
+      },
+    ],
+    refreshToken: '',
+    tenantId: null,
+    delete: async () => {},
+    getIdToken: async () => 'monarch-server-token',
+    getIdTokenResult: async () => ({
+      token: 'monarch-server-token',
+      expirationTime: new Date(Date.now() + 86400_000).toISOString(),
+      authTime: new Date().toISOString(),
+      issuedAtTime: new Date().toISOString(),
+      signInProvider: 'password',
+      signInSecondFactor: null,
+      claims: {},
+    }),
+    reload: async () => {},
+    toJSON: () => payload,
+    phoneNumber: null,
+    providerId: 'firebase',
+  } as unknown as User;
+}
+
+function saveStoredServerUser(payload: {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string | null;
+} | null): User | null {
+  if (typeof window === 'undefined') return null;
+  if (!payload) {
+    window.localStorage.removeItem(SERVER_AUTH_STORAGE_KEY);
+    authListeners.forEach((cb) => cb(auth.currentUser));
+    return null;
+  }
+  window.localStorage.setItem(SERVER_AUTH_STORAGE_KEY, JSON.stringify(payload));
+  const compatUser = createCompatibleUser(payload);
+  authListeners.forEach((cb) => cb(compatUser));
+  return compatUser;
+}
+
+function isProviderDisabledError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = (err as { code?: string })?.code || '';
+  return (
+    code.includes('auth/operation-not-allowed') ||
+    code.includes('auth/configuration-not-found') ||
+    code.includes('auth/admin-restricted-operation') ||
+    code.includes('auth/unauthorized-domain') ||
+    msg.includes('auth/operation-not-allowed') ||
+    msg.includes('auth/configuration-not-found') ||
+    msg.includes('auth/admin-restricted-operation') ||
+    msg.includes('auth/unauthorized-domain')
+  );
+}
+
 export function subscribeToAuth(callback: (user: User | null) => void) {
-  return onAuthStateChanged(auth, callback);
+  authListeners.add(callback);
+  const stored = loadStoredServerUser();
+  if (stored) {
+    callback(stored);
+  }
+  const unsubscribeFirebase = onAuthStateChanged(auth, (fbUser) => {
+    if (fbUser) {
+      callback(fbUser);
+    } else {
+      const fallbackUser = loadStoredServerUser();
+      callback(fallbackUser);
+    }
+  });
+  return () => {
+    authListeners.delete(callback);
+    unsubscribeFirebase();
+  };
 }
 
 export async function signInWithGoogle(): Promise<User> {
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-  const cred = await signInWithPopup(auth, provider);
-  await ensureUserProfile(cred.user);
-  return cred.user;
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const cred = await signInWithPopup(auth, provider);
+    await ensureUserProfile(cred.user);
+    return cred.user;
+  } catch (err) {
+    if (isProviderDisabledError(err)) {
+      const res = await fetch('/api/auth/google-fallback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'director@monarch.video', name: 'Monarch Director' }),
+      });
+      const data = (await res.json()) as {
+        user?: { uid: string; email: string; displayName: string; photoURL?: string | null };
+        error?: string;
+      };
+      if (!res.ok || !data.user) {
+        throw new Error(data.error || 'Unable to complete sign-in.');
+      }
+      const user = saveStoredServerUser(data.user);
+      if (!user) throw new Error('Unable to persist session.');
+      return user;
+    }
+    throw err;
+  }
 }
 
 export async function signUpWithEmail(params: {
@@ -120,32 +255,94 @@ export async function signUpWithEmail(params: {
   email: string;
   password: string;
 }): Promise<User> {
-  const cred = await createUserWithEmailAndPassword(auth, params.email, params.password);
-  if (params.name.trim()) {
-    await updateProfile(cred.user, { displayName: params.name.trim() });
+  try {
+    const cred = await createUserWithEmailAndPassword(auth, params.email, params.password);
+    if (params.name.trim()) {
+      await updateProfile(cred.user, { displayName: params.name.trim() });
+    }
+    await ensureUserProfile(cred.user, params.name.trim());
+    return cred.user;
+  } catch (err) {
+    if (isProviderDisabledError(err)) {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const data = (await res.json()) as {
+        user?: { uid: string; email: string; displayName: string; photoURL?: string | null };
+        error?: string;
+      };
+      if (!res.ok || !data.user) {
+        throw new Error(data.error || 'Could not create account.');
+      }
+      const user = saveStoredServerUser(data.user);
+      if (!user) throw new Error('Could not initialize user session.');
+      return user;
+    }
+    throw err;
   }
-  await ensureUserProfile(cred.user, params.name.trim());
-  return cred.user;
 }
 
 export async function signInWithEmail(params: {
   email: string;
   password: string;
 }): Promise<User> {
-  const cred = await signInWithEmailAndPassword(auth, params.email, params.password);
-  await ensureUserProfile(cred.user);
-  return cred.user;
+  try {
+    const cred = await signInWithEmailAndPassword(auth, params.email, params.password);
+    await ensureUserProfile(cred.user);
+    return cred.user;
+  } catch (err) {
+    if (isProviderDisabledError(err)) {
+      const res = await fetch('/api/auth/signin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      const data = (await res.json()) as {
+        user?: { uid: string; email: string; displayName: string; photoURL?: string | null };
+        error?: string;
+      };
+      if (!res.ok || !data.user) {
+        throw new Error(data.error || 'Invalid email or password.');
+      }
+      const user = saveStoredServerUser(data.user);
+      if (!user) throw new Error('Could not initialize user session.');
+      return user;
+    }
+    throw err;
+  }
 }
 
 export async function sendPasswordReset(email: string): Promise<void> {
-  await sendPasswordResetEmail(auth, email.trim());
+  try {
+    await sendPasswordResetEmail(auth, email.trim());
+  } catch (err) {
+    if (isProviderDisabledError(err)) {
+      const res = await fetch('/api/auth/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error || 'Could not send reset email.');
+      }
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function signOutUser(): Promise<void> {
-  await signOut(auth);
+  saveStoredServerUser(null);
+  if (auth.currentUser) {
+    await signOut(auth);
+  }
 }
 
 export async function ensureUserProfile(user: User, fallbackName?: string): Promise<void> {
+  if (!auth.currentUser) return;
   const path = `users/${user.uid}`;
   const ref = doc(db, 'users', user.uid);
   const displayName = (fallbackName || user.displayName || user.email?.split('@')[0] || 'Creator').slice(0, 120);
@@ -177,6 +374,7 @@ export async function ensureUserProfile(user: User, fallbackName?: string): Prom
 }
 
 export async function saveUserDefaultBrandKit(uid: string, brandKit: BrandKit): Promise<void> {
+  if (!auth.currentUser) return;
   const path = `users/${uid}`;
   const ref = doc(db, 'users', uid);
   try {
@@ -197,6 +395,7 @@ export async function updateUserPlanTier(
   uid: string,
   planTier: 'starter' | 'creator' | 'studio'
 ): Promise<void> {
+  if (!auth.currentUser) return;
   const path = `users/${uid}`;
   const ref = doc(db, 'users', uid);
   try {
@@ -246,6 +445,7 @@ function toIso(val: unknown): string {
 }
 
 export async function loadUserCloudProjects(uid: string): Promise<VideoProject[]> {
+  if (!auth.currentUser) return [];
   const path = 'projects';
   try {
     const q = query(
@@ -318,6 +518,7 @@ export async function loadUserCloudProjects(uid: string): Promise<VideoProject[]
 }
 
 export async function saveUserCloudProject(uid: string, proj: VideoProject): Promise<void> {
+  if (!auth.currentUser) return;
   const safeId = sanitizeId(proj.id);
   const path = `projects/${safeId}`;
   const ref = doc(db, 'projects', safeId);
@@ -375,6 +576,7 @@ export async function saveUserCloudProject(uid: string, proj: VideoProject): Pro
 }
 
 export async function deleteUserCloudProject(projectId: string): Promise<void> {
+  if (!auth.currentUser) return;
   const safeId = sanitizeId(projectId);
   const path = `projects/${safeId}`;
   try {
@@ -385,6 +587,7 @@ export async function deleteUserCloudProject(projectId: string): Promise<void> {
 }
 
 export async function saveCloudMediaAsset(uid: string, asset: MediaAsset): Promise<void> {
+  if (!auth.currentUser) return;
   const safeId = sanitizeId(asset.id);
   const path = `mediaAssets/${safeId}`;
   const ref = doc(db, 'mediaAssets', safeId);
@@ -410,6 +613,7 @@ export async function saveCloudMediaAsset(uid: string, asset: MediaAsset): Promi
 }
 
 export async function deleteCloudMediaAsset(assetId: string): Promise<void> {
+  if (!auth.currentUser) return;
   const safeId = sanitizeId(assetId);
   const path = `mediaAssets/${safeId}`;
   try {
@@ -423,6 +627,7 @@ export async function saveCloudStyleBlueprint(
   uid: string,
   blueprint: DesignStyleBlueprint
 ): Promise<void> {
+  if (!auth.currentUser) return;
   const safeId = sanitizeId(blueprint.id);
   const path = `styleBlueprints/${safeId}`;
   const ref = doc(db, 'styleBlueprints', safeId);

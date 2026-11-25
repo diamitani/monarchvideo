@@ -1,0 +1,14 @@
+[
+  {
+    "uid": "usr_e721c7d760b43be6348b",
+    "email": "gptpat123@gmail.com",
+    "displayName": "Pat Monarch",
+    "photoURL": null,
+    "passwordSalt": "3900fa6f17090ab7173ec7004a8920a9",
+    "passwordHash": "d87e760f3d465578ee90ae7c40d281b86dbb7179d7ddc04872089e0ef32516bb4ff75044c6cb67960e39694ec4f023e63229022f0206fccec2f7aad66aacb114",
+    "planTier": "starter",
+    "authProvider": "monarch-server",
+    "createdAt": "2026-11-24T02:02:53.801Z",
+    "updatedAt": "2026-11-24T02:04:15.412Z"
+  }
+]

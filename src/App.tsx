@@ -86,9 +86,9 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FC] text-[#0B0F19]">
-      {/* Lexio Framer Template 3-Zone Top Navigation Bar */}
+      {/* 3-Zone Top Navigation Bar */}
       <header className="sticky top-0 z-40 border-b border-[#E6E8F0] bg-white/95 backdrop-blur-md">
-        <div className="mx-auto flex h-16 max-w-[1240px] items-center justify-between gap-6 px-6">
+        <div className="mx-auto flex h-16 max-w-[1240px] items-center justify-between gap-8 px-6">
           {/* Zone 1: Brand Wordmark */}
           <button
             type="button"
@@ -101,23 +101,23 @@ export function App() {
             </span>
           </button>
 
-          {/* Zone 2: Primary Navigation (5 concise single-line links in Lexio style) */}
+          {/* Zone 2: Primary Navigation (5 concise single-line links) */}
           {view === 'marketing' ? (
             <nav
               aria-label="Primary navigation"
               className="hidden items-center gap-8 text-xs font-medium text-[#475569] md:flex"
             >
               <a
-                href="#programs"
+                href="#formats"
                 className="transition-colors hover:text-[#0B0F19] whitespace-nowrap shrink-0"
               >
-                Programs
+                Formats
               </a>
               <a
-                href="#features"
+                href="#why-monarch"
                 className="transition-colors hover:text-[#0B0F19] whitespace-nowrap shrink-0"
               >
-                Capabilities
+                Why Monarch
               </a>
               <a
                 href="#showcase"
@@ -126,10 +126,10 @@ export function App() {
                 Showcase
               </a>
               <a
-                href="#reviews"
+                href="#stories"
                 className="transition-colors hover:text-[#0B0F19] whitespace-nowrap shrink-0"
               >
-                Reviews
+                Stories
               </a>
               <a
                 href="#pricing"
@@ -162,12 +162,12 @@ export function App() {
                 onClick={() => setView('inspector')}
                 className="font-semibold text-[#0B0F19] transition-colors whitespace-nowrap shrink-0"
               >
-                Agent Soul & Covenant
+                Studio Engine
               </button>
             </nav>
           )}
 
-          {/* Zone 3: Actions (Max 2 interactive controls) */}
+          {/* Zone 3: Actions */}
           <div className="flex items-center gap-3 shrink-0">
             {authReady && user ? (
               <>
@@ -176,7 +176,7 @@ export function App() {
                   onClick={() => setView('workspace')}
                   className="inline-flex h-10 items-center rounded-xl bg-[#0B0F19] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#1E293B] whitespace-nowrap shrink-0"
                 >
-                  Open Video Studio
+                  Open Studio
                 </button>
                 <button
                   type="button"
@@ -205,7 +205,7 @@ export function App() {
                   onClick={() => handleStartCreating({ authMode: 'signup' })}
                   className="inline-flex h-10 items-center rounded-xl bg-[#0B0F19] px-4 text-xs font-semibold text-white transition-colors hover:bg-[#1E293B] whitespace-nowrap shrink-0"
                 >
-                  Start Free Trial
+                  Start Creating Free
                 </button>
               </>
             )}

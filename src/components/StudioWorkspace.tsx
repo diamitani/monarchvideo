@@ -1416,7 +1416,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-white px-3 text-xs font-semibold text-[#0B0F19] transition-colors hover:bg-slate-100"
           >
             <Plus className="h-4 w-4" />
-            <span>New Video Track</span>
+            <span>New Video</span>
           </button>
         </div>
 
@@ -1424,19 +1424,19 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
         <nav aria-label="Workspace sections" className="space-y-1 px-3">
           {(
             [
-              { id: 'projects', label: 'Projects', icon: FolderOpen, count: projects.length },
-              { id: 'create', label: 'Video Editor', icon: Film, count: null },
-              { id: 'files', label: 'Content & B-Roll Hub', icon: Upload, count: assets.length },
-              { id: 'models', label: 'Models & Voices', icon: Mic, count: null },
+              { id: 'projects', label: 'My Videos', icon: FolderOpen, count: projects.length },
+              { id: 'create', label: 'Video Studio', icon: Film, count: null },
+              { id: 'files', label: 'Brand & Media Library', icon: Upload, count: assets.length },
+              { id: 'models', label: 'Voices & Sound', icon: Mic, count: null },
               {
                 id: 'integrations',
-                label: 'Integrations',
+                label: 'Channels & Apps',
                 icon: Plug,
                 count: integrations.filter((i) => i.connected).length,
               },
               {
                 id: 'billing',
-                label: 'Billing & Launch Guide',
+                label: 'Plans & Billing',
                 icon: CreditCard,
                 count: null,
               },
@@ -1517,7 +1517,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             className="inline-flex items-center gap-1.5 font-medium text-[#D4AF37] transition-colors hover:text-white"
           >
             <Sliders className="h-3.5 w-3.5" />
-            <span>Agent Soul & Covenant</span>
+            <span>Studio Engine</span>
           </button>
           <button
             type="button"
@@ -1624,13 +1624,13 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             </button>
             <div>
               <h1 className="font-display text-base font-bold tracking-tight text-slate-900">
-                {section === 'projects' && 'Projects'}
+                {section === 'projects' && 'My Videos'}
                 {section === 'create' &&
                   (preProduction?.projectBrief.title || pal?.parseData.topic || 'New Video')}
-                {section === 'files' && 'Content, Brand Docs & B-Roll Hub'}
-                {section === 'models' && 'Models & Voices'}
-                {section === 'integrations' && 'Integrations'}
-                {section === 'billing' && 'Billing & Production Launch Guide'}
+                {section === 'files' && 'Brand & Media Library'}
+                {section === 'models' && 'Voices & Sound'}
+                {section === 'integrations' && 'Channels & Apps'}
+                {section === 'billing' && 'Plans & Billing'}
               </h1>
             </div>
           </div>
@@ -1639,7 +1639,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             {user && cloudSynced && (
               <span className="hidden items-center gap-1.5 text-xs text-slate-500 sm:inline-flex">
                 <Cloud className="h-3.5 w-3.5 text-emerald-600" />
-                <span>Cloud synced</span>
+                <span>Saved</span>
               </span>
             )}
             <button
@@ -1649,14 +1649,6 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             >
               <Video className="h-3.5 w-3.5 text-[#102D69]" />
               <span className="hidden sm:inline">Watch Walkthrough</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setDiagnosticsOpen(true)}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-[#102D69] transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0"
-            >
-              <BookOpen className="h-3.5 w-3.5 text-[#9A7B1C]" />
-              <span className="hidden md:inline">SOUL.md & Covenant</span>
             </button>
             {section === 'create' && activeProjectId && timeline && (
               <button
@@ -2003,7 +1995,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div>
                         <label className="block text-xs font-medium text-slate-700">
-                          Cinema Style Blueprint
+                          Editing Style & Pacing
                         </label>
                         <select
                           value={selectedStyleBlueprintId}
@@ -2194,24 +2186,25 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       <div className="rounded-2xl border border-slate-200 bg-white p-6">
                         <p className="text-xs font-medium text-[#9A7B1C]">How it works</p>
                         <h3 className="mt-1 font-display text-lg font-bold text-slate-900">
-                          7-Sub-Agent B-Roll Montage Pipeline
+                          From rough idea to finished cut in 3 steps
                         </h3>
                         <ol className="mt-4 space-y-3 text-xs leading-relaxed text-slate-600">
                           <li>
-                            <strong className="text-slate-900">1. Brand Doc Auto-Sync:</strong> Drop
-                            any brand guideline PDF, markdown doc, or logo to sync your exact hex
-                            palette, fonts, and watermark.
+                            <strong className="text-slate-900">1. Match Your Brand:</strong> Drop in
+                            your brand guide or logo so Monarch matches your colors, fonts, and
+                            logo lockup automatically.
                           </li>
                           <li>
-                            <strong className="text-slate-900">2. Storyboard & B-Roll Plan:</strong>{' '}
-                            Inspect every scene, kinetic headline, and 4-source B-roll montage cue.
+                            <strong className="text-slate-900">2. Review Your Storyboard:</strong>{' '}
+                            Preview every scene, headline, and B-roll moment before anything is
+                            rendered.
                           </li>
                           <li>
                             <strong className="text-slate-900">
-                              3. Live Cut & H.264 MP4 Render:
+                              3. Refine & Download MP4:
                             </strong>{' '}
-                            Play with real moving B-roll sub-cuts, studio narration, 1-click
-                            “Sharper cuts” pacing feedback, and in-app H.264 .mp4 rendering.
+                            Play your cut with studio voiceover, click “Sharper cuts” to adjust
+                            pacing, and download a ready-to-post MP4.
                           </li>
                         </ol>
                       </div>
@@ -2365,18 +2358,18 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                             className="inline-flex h-8 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-mono text-slate-600 hover:bg-slate-50 whitespace-nowrap shrink-0"
                           >
                             <Code2 className="h-3.5 w-3.5" />
-                            <span>Style JSON</span>
+                            <span>Custom Style</span>
                           </button>
                         </div>
                       </div>
 
-                      {/* Optional Style Blueprint JSON Inspector + Reverse-Engineer Generator */}
+                      {/* Optional Custom Style Creator */}
                       {showStyleJsonDrawer && activeStyleBlueprint && (
                         <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>
                               <p className="text-xs font-bold text-slate-900">
-                                Reusable Cinema Style Blueprint JSON — {activeStyleBlueprint.name}
+                                Saved Visual & Pacing Style — {activeStyleBlueprint.name}
                               </p>
                               <p className="text-[11px] text-slate-500">
                                 {activeStyleBlueprint.description} · Used{' '}
@@ -2400,7 +2393,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                               type="text"
                               value={newStylePrompt}
                               onChange={(e) => setNewStylePrompt(e.target.value)}
-                              placeholder="Reverse-engineer a new style (e.g. Apple Keynote 1.4s snap cuts with high-contrast slate plates)..."
+                              placeholder="Describe a new visual style (e.g. Fast keynote launch with bold headlines and warm transitions)..."
                               className="h-9 flex-1 rounded-lg border border-slate-200 bg-[#FAFBFD] px-3 text-xs text-slate-900 outline-none focus:border-[#102D69]"
                             />
                             <button
@@ -2409,7 +2402,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                               className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[#102D69] px-3.5 text-xs font-semibold text-white hover:bg-[#091A3E] disabled:opacity-50 whitespace-nowrap shrink-0"
                             >
                               <Sparkles className="h-3.5 w-3.5 text-[#D4AF37]" />
-                              <span>Generate Style Blueprint</span>
+                              <span>Create Custom Style</span>
                             </button>
                           </form>
 
@@ -2502,7 +2495,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
                         <div>
                           <label className="flex items-center justify-between text-xs font-semibold text-slate-900">
-                            <span>Cinema Style Blueprint</span>
+                            <span>Editing Style & Pacing</span>
                             <span className="font-mono text-[11px] text-[#9A7B1C]">
                               {getBlueprintAvgCutSec(activeStyleBlueprint)}s cuts
                             </span>
@@ -2908,9 +2901,8 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                     Upload Brand Docs, Logos & Custom B-Roll Clips
                   </h2>
                   <p className="mt-1 text-xs text-slate-600">
-                    Drop a brand guideline (.pdf, .md, .txt, .json) or logo (.png, .svg, .jpg) to
-                    automatically extract your hex palette and watermark, or upload your own .mp4
-                    B-roll footage.
+                    Drop in your brand guide (.pdf, .md, .txt) or logo (.png, .svg, .jpg) to match
+                    your colors and logo automatically, or upload your own product clips.
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -2921,7 +2913,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       onChange={(e) => setAutoSyncUploads(e.target.checked)}
                       className="rounded border-slate-300 text-[#102D69]"
                     />
-                    <span>Auto-sync brand uploads</span>
+                    <span>Auto-match brand uploads</span>
                   </label>
                   <input
                     ref={fileInputRef}
@@ -2941,20 +2933,20 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                     ) : (
                       <Upload className="h-4 w-4" />
                     )}
-                    <span>Upload Brand File or Video</span>
+                    <span>Upload Brand File or Clip</span>
                   </button>
                 </div>
               </div>
 
-              {/* Open-Source & Composio B-Roll Media Library Hub */}
+              {/* Royalty-Free Stock Footage & B-Roll Library */}
               <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
                     <p className="text-xs font-medium text-[#9A7B1C]">
-                      4-Source B-Roll & Audio Connector Hub
+                      Royalty-Free B-Roll Library
                     </p>
                     <h3 className="mt-0.5 font-display text-base font-bold text-slate-900">
-                      Open-Source & Composio Media Library (Pexels · Pixabay · Wikimedia · Coverr)
+                      Search Stock Footage & Music (Pexels · Pixabay · Coverr · Curated Studio)
                     </h3>
                   </div>
 
@@ -2965,7 +2957,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         type="text"
                         value={mediaSearchQuery}
                         onChange={(e) => setMediaSearchQuery(e.target.value)}
-                        placeholder="Search B-roll (e.g. lens, city, nature)..."
+                        placeholder="Search clips (e.g. office, product, city)..."
                         className="h-9 w-full rounded-lg border border-slate-200 bg-[#FAFBFD] pr-3 pl-8 text-xs text-slate-900 outline-none focus:border-[#102D69]"
                       />
                     </div>
@@ -2979,7 +2971,7 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                       ) : (
                         <Search className="h-3.5 w-3.5" />
                       )}
-                      <span>Search Hub</span>
+                      <span>Search Clips</span>
                     </button>
                   </form>
                 </div>
@@ -2987,11 +2979,11 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                 {/* Source Filter Bar */}
                 <div className="flex flex-wrap gap-1 rounded-lg bg-slate-100 p-1 w-fit">
                   {[
-                    { id: 'all', label: 'All Sources' },
-                    { id: 'curated-hd', label: 'Curated Studio HD' },
-                    { id: 'pexels', label: 'Pexels (Composio)' },
+                    { id: 'all', label: 'All Libraries' },
+                    { id: 'curated-hd', label: 'Curated Studio' },
+                    { id: 'pexels', label: 'Pexels' },
                     { id: 'pixabay', label: 'Pixabay' },
-                    { id: 'wikimedia', label: 'Wikimedia Commons CC0' },
+                    { id: 'wikimedia', label: 'Public Domain' },
                     { id: 'coverr', label: 'Coverr Cinema' },
                   ].map((src) => (
                     <button
@@ -3356,11 +3348,11 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
             <div className="space-y-6">
               <div className="rounded-2xl border border-slate-200 bg-white p-6">
                 <h2 className="font-display text-lg font-bold text-slate-900">
-                  Publishing Channels, Composio Media & Connected Tools
+                  Publishing Channels & Stock Media Libraries
                 </h2>
                 <p className="mt-1 text-xs text-slate-600">
-                  Connect Pexels, Pixabay, Wikimedia Commons, Openverse audio, YouTube, Instagram
-                  Reels, TikTok, or Google Drive to streamline your video pipeline.
+                  Connect Pexels, Pixabay, YouTube, Instagram Reels, TikTok, or Google Drive to pull
+                  in footage and publish finished videos faster.
                 </p>
               </div>
 
@@ -3467,19 +3459,19 @@ export const StudioWorkspace: React.FC<StudioWorkspaceProps> = ({
                         id: 'starter' as SubscriptionPlanId,
                         name: 'Starter Free',
                         price: '$0 / mo',
-                        desc: '3 MP4/WebM exports per month, 5 studio voices, curated B-roll library.',
+                        desc: '3 MP4 downloads per month, 5 natural studio voices, curated & stock B-roll.',
                       },
                       {
                         id: 'creator' as SubscriptionPlanId,
                         name: 'Creator Pro',
                         price: '$29 / mo',
-                        desc: 'Unlimited H.264 MP4 renders, 10 Brand Doc auto-sync kits, custom JSON style blueprints.',
+                        desc: 'Unlimited MP4 downloads, 10 saved brand kits, and custom visual pacing styles.',
                       },
                       {
                         id: 'studio' as SubscriptionPlanId,
-                        name: 'Studio Unlimited',
+                        name: 'Studio Team',
                         price: '$99 / mo',
-                        desc: 'Up to 10 team seats, Composio social & Pexels connectors, 4K Remotion TSX + API access.',
+                        desc: 'Up to 10 team seats, direct YouTube/Reels/Drive channels, and 4K exports.',
                       },
                     ] as const
                   ).map((tier) => {

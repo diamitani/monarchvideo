@@ -3,12 +3,9 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
-  ChevronDown,
-  ExternalLink,
   Loader2,
   Lock,
   Mail,
-  ShieldCheck,
   User as UserIcon,
 } from 'lucide-react';
 import {
@@ -43,7 +40,6 @@ export const AuthView: React.FC<AuthViewProps> = ({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resetSuccess, setResetSuccess] = useState<string | null>(null);
-  const [showProdGuide, setShowProdGuide] = useState(false);
 
   const handleGoogleAuth = async () => {
     setBusy('google');
@@ -55,9 +51,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('popup-closed-by-user')) {
-        setError('Google sign-in window was closed. Please try again or use email below.');
+        setError('Google sign-in window was closed. Please try again or use your email below.');
       } else {
-        setError(msg.replace(/^Firebase:\s*/i, ''));
+        setError('Unable to sign in with Google right now. Please try email below.');
       }
     } finally {
       setBusy(null);
@@ -91,7 +87,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
   const handlePasswordReset = async () => {
     if (!email.trim()) {
-      setError('Enter your email address above first, then click Forgot password.');
+      setError('Enter your email address above first, then select Forgot password.');
       return;
     }
     setBusy('reset');
@@ -99,9 +95,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
     setResetSuccess(null);
     try {
       await sendPasswordReset(email.trim());
-      setResetSuccess(
-        `Password reset ready for ${email.trim()}. You can sign in directly or set a new password via Sign Up.`
-      );
+      setResetSuccess(`We sent password reset instructions for ${email.trim()}.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg.replace(/^Firebase:\s*/i, ''));
@@ -112,11 +106,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
   return (
     <div className="min-h-screen bg-[#F8F9FC] text-[#0B0F19] lg:grid lg:grid-cols-12">
-      {/* Left Lexio Editorial Studio Panel */}
+      {/* Left Editorial Brand Panel */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-[#0B0F19] p-12 text-white lg:col-span-5 lg:flex">
         <img
           src={AUTH_VISUAL}
-          alt="Monarch Video editing suite"
+          alt="Monarch Video creative studio"
           referrerPolicy="no-referrer"
           className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-35"
         />
@@ -144,35 +138,35 @@ export const AuthView: React.FC<AuthViewProps> = ({
         </div>
 
         <div className="relative z-10 max-w-md space-y-5">
-          <p className="text-xs font-semibold tracking-wide text-[#D4AF37] uppercase">
-            Monarch Director Studio
+          <p className="text-xs font-semibold text-[#D4AF37]">
+            Built for Marketers, Creators & Storytellers
           </p>
           <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-balance">
-            Direct 4-source B-roll montages, auto-sync brand kits, and render H.264 MP4s.
+            Turn rough ideas into scroll-stopping brand videos in minutes.
           </h1>
           <p className="text-sm leading-relaxed text-slate-300">
-            Dual-mode Cloud + Server Auth ensures instant access even before Firebase Console
-            providers are toggled on. All storyboards, brand kits, and MP4 exports stay synced.
+            Keep your brand colors, logos, B-roll footage, and finished cuts together in one calm
+            studio—so you can ship campaigns without waiting on an agency queue.
           </p>
 
-          <div className="grid grid-cols-3 gap-3 border-t border-white/15 pt-5 text-xs">
+          <div className="grid grid-cols-3 gap-4 border-t border-white/15 pt-5 text-xs">
             <div>
-              <p className="font-display text-lg font-bold text-white tabular-nums">1.8s</p>
-              <p className="text-slate-400">B-Roll Cut Cadence</p>
+              <p className="font-display text-lg font-bold text-white tabular-nums">3 Min</p>
+              <p className="text-slate-400">Brief to first cut</p>
             </div>
             <div>
-              <p className="font-display text-lg font-bold text-white tabular-nums">4 Sources</p>
-              <p className="text-slate-400">Open Media + Veo</p>
+              <p className="font-display text-lg font-bold text-white">Every Ratio</p>
+              <p className="text-slate-400">16:9, 9:16 & 1:1</p>
             </div>
             <div>
-              <p className="font-display text-lg font-bold text-white tabular-nums">H.264</p>
-              <p className="text-slate-400">In-App MP4 Render</p>
+              <p className="font-display text-lg font-bold text-white">MP4 Ready</p>
+              <p className="text-slate-400">Post anywhere</p>
             </div>
           </div>
 
           {pendingPrompt && (
             <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-xs">
-              <p className="text-[11px] font-semibold text-[#D4AF37]">Queued Video Track Brief</p>
+              <p className="text-[11px] font-semibold text-[#D4AF37]">Your story brief is ready</p>
               <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-100">
                 “{pendingPrompt}”
               </p>
@@ -181,11 +175,11 @@ export const AuthView: React.FC<AuthViewProps> = ({
         </div>
 
         <p className="relative z-10 text-xs text-slate-400">
-          © {new Date().getFullYear()} Monarch Video Studio · Lexio Design System
+          © {new Date().getFullYear()} Monarch Video
         </p>
       </div>
 
-      {/* Right Lexio Framer Card Form */}
+      {/* Right Sign In / Sign Up Card */}
       <div className="flex min-h-screen flex-col justify-center px-6 py-12 lg:col-span-7 lg:px-16">
         <div className="mx-auto w-full max-w-[440px]">
           <div className="mb-8 flex items-center justify-between lg:hidden">
@@ -202,18 +196,18 @@ export const AuthView: React.FC<AuthViewProps> = ({
             </button>
           </div>
 
-          <div className="rounded-[24px] border border-[#E6E8F0] bg-white p-7 shadow-xs sm:p-8">
+          <div className="rounded-[24px] border border-[#E6E8F0] bg-white p-7 sm:p-8">
             <div>
               <p className="text-xs font-semibold text-[#102D69]">
-                {mode === 'signin' ? 'Welcome Back' : 'Instant Studio Access'}
+                {mode === 'signin' ? 'Welcome back' : 'Start creating for free'}
               </p>
               <h2 className="mt-1 font-display text-2xl font-bold tracking-tight text-[#0B0F19]">
-                {mode === 'signin' ? 'Sign in to Monarch Studio' : 'Create your Monarch account'}
+                {mode === 'signin' ? 'Sign in to your studio' : 'Create your Monarch account'}
               </h2>
               <p className="mt-1.5 text-xs leading-relaxed text-[#475569]">
                 {mode === 'signin'
-                  ? 'Access your saved video tracks, brand kits, B-roll library, and MP4 renders.'
-                  : 'Start directing B-roll montages with synced voiceover and H.264 MP4 exports.'}
+                  ? 'Pick up right where you left off with your saved drafts, brand kits, and videos.'
+                  : 'Save your brand style, organize your clips, and download ready-to-post MP4s.'}
               </p>
             </div>
 
@@ -247,7 +241,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     : 'text-[#475569] hover:text-[#0B0F19]'
                 }`}
               >
-                Sign Up
+                Create Account
               </button>
             </div>
 
@@ -285,7 +279,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
             <div className="my-5 flex items-center gap-3">
               <div className="h-px flex-1 bg-[#E6E8F0]" />
-              <span className="text-[11px] text-slate-400">or with email</span>
+              <span className="text-[11px] text-slate-400">or use your email</span>
               <div className="h-px flex-1 bg-[#E6E8F0]" />
             </div>
 
@@ -305,7 +299,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
             <form onSubmit={handleEmailSubmit} className="space-y-4">
               {mode === 'signup' && (
                 <div>
-                  <label className="block text-xs font-semibold text-[#0B0F19]">Full name</label>
+                  <label className="block text-xs font-semibold text-[#0B0F19]">Your name</label>
                   <div className="relative mt-1.5">
                     <UserIcon className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
                     <input
@@ -321,7 +315,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-[#0B0F19]">Email address</label>
+                <label className="block text-xs font-semibold text-[#0B0F19]">Work or creator email</label>
                 <div className="relative mt-1.5">
                   <Mail className="pointer-events-none absolute top-3 left-3 h-4 w-4 text-slate-400" />
                   <input
@@ -329,7 +323,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@company.com"
+                    placeholder="you@brand.com"
                     className="h-10 w-full rounded-xl border border-[#E6E8F0] bg-[#F8F9FC] pr-3 pl-9 text-sm text-[#0B0F19] outline-none transition-colors focus:border-[#0B0F19] focus:bg-white"
                   />
                 </div>
@@ -372,7 +366,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <>
-                    <span>{mode === 'signin' ? 'Sign In to Studio' : 'Create Studio Account'}</span>
+                    <span>{mode === 'signin' ? 'Enter Your Studio' : 'Start Creating Free'}</span>
                     <ArrowRight className="h-4 w-4" />
                   </>
                 )}
@@ -385,52 +379,9 @@ export const AuthView: React.FC<AuthViewProps> = ({
                 onClick={onContinueAsGuest}
                 className="text-xs font-medium text-[#475569] underline-offset-4 transition-colors hover:text-[#0B0F19] hover:underline"
               >
-                Continue in guest studio without signing in
+                Explore the studio first as a guest
               </button>
             </div>
-          </div>
-
-          {/* Dual-Mode Auth + Firebase Console Guide */}
-          <div className="mt-4 rounded-2xl border border-[#E6E8F0] bg-white p-4">
-            <button
-              type="button"
-              onClick={() => setShowProdGuide((prev) => !prev)}
-              className="flex w-full items-center justify-between text-left text-xs font-semibold text-[#0B0F19]"
-            >
-              <span className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                <span>Dual-Mode Auth Active (auth/operation-not-allowed Auto-Failover)</span>
-              </span>
-              <ChevronDown
-                className={`h-4 w-4 text-slate-400 transition-transform ${
-                  showProdGuide ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-            {showProdGuide && (
-              <div className="mt-3 space-y-2 border-t border-[#E6E8F0] pt-3 text-[11px] leading-relaxed text-[#475569]">
-                <p>
-                  <strong className="text-[#0B0F19]">Automatic Failover Enabled:</strong> If
-                  Firebase throws <code className="font-mono text-[#102D69]">auth/operation-not-allowed</code>{' '}
-                  because Email/Password is not yet toggled on in Firebase Console, Monarch
-                  automatically authenticates your account via its encrypted server session store.
-                </p>
-                <p>
-                  <strong className="text-[#0B0F19]">Optional Firebase Console Toggle:</strong> To
-                  also enable direct Firebase client tokens on Vercel, open Firebase Console and
-                  enable <strong>Email/Password</strong> & <strong>Google</strong>:
-                </p>
-                <a
-                  href="https://console.firebase.google.com/project/elite-rider-459015-b2/authentication/providers"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 font-semibold text-[#102D69] hover:underline"
-                >
-                  <span>Open Firebase Auth Providers (elite-rider-459015-b2)</span>
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              </div>
-            )}
           </div>
         </div>
       </div>
